@@ -10,6 +10,7 @@
 #include <thread>
 #include <chrono>
 #include <cstdlib>
+#include <fstream>
 
 #define HMAC_BLOCK_SIZE 64
 #define SHA256_HASH_LEN 32
@@ -318,16 +319,6 @@ HashParams parse_hash(const std::string& hash) {
 #define ROR2(x) (((x) << 30) | ((x) >> 2))
 #define ROR13(x) (((x) << 19) | ((x) >> 13))
 #define ROR22(x) (((x) << 10) | ((x) >> 22))
-
-/* static __device__ __forceinline__ uint32_t IADD3(uint32_t a, uint32_t b, uint32_t c) {
-#if (__CUDA_ARCH__ >= 500)
-    uint32_t d;
-    asm("iadd3 %0, %1, %2, %3;" : "=r"(d) : "r"(a), "r"(b), "r"(c));
-    return d;
-#else
-    return a + b + c;
-#endif
-}; */
 
 static __device__ __forceinline__ uint32_t LOP3LUT_XOR(uint32_t a, uint32_t b, uint32_t c) {
 #if (__CUDA_ARCH__ >= 500)
@@ -1193,8 +1184,8 @@ int main(int argc, char* argv[]) {
         CUDA_CHECK(cudaMemset(d_found_flag, 0, sizeof(int)));
 
         // Launch configuration
-        int threads_per_block = 256; // Adjusted for better GPU utilization
-        int blocks = 256;
+        int threads_per_block = 1024; // Adjusted for better GPU utilization
+        int blocks = 1024;
         unsigned long long candidates_per_launch = static_cast<unsigned long long>(blocks) * threads_per_block;
 
         // Start status threads
@@ -1231,6 +1222,16 @@ int main(int argc, char* argv[]) {
                 break;
             }
         }
+		
+	// Add Checkpointing
+	unsigned long long start = 0;
+	std::ifstream checkpoint("checkpoint.txt");
+	if (checkpoint) checkpoint >> start;
+
+	if (start % (candidates_per_launch * 1000) == 0) {
+    std::ofstream checkpoint("checkpoint.txt");
+    checkpoint << start << std::endl;
+	}
 
         // Stop status threads
         running = false;
