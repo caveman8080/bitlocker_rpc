@@ -10,7 +10,6 @@
 #include <thread>
 #include <chrono>
 #include <cstdlib>
-#include <fstream>
 
 #define HMAC_BLOCK_SIZE 64
 #define SHA256_HASH_LEN 32
@@ -58,6 +57,11 @@ __device__ __constant__ uint32_t k[64] = {
     0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
     0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
     0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+};
+
+__device__ __constant__ unsigned int rcon[11] = {
+    0x00000000, 0x01000000, 0x02000000, 0x04000000, 0x08000000,
+    0x10000000, 0x20000000, 0x40000000, 0x80000000, 0x1B000000, 0x36000000
 };
 
 // AES-256 encrypt block
@@ -200,6 +204,10 @@ __device__ __constant__ unsigned int TS3[256] = {
     0x8C8C8F03U, 0xA1A1F859U, 0x89898009U, 0x0D0D171AU, 0xBFBFDA65U, 0xE6E631D7U, 0x4242C684U, 0x6868B8D0U, 
     0x4141C382U, 0x9999B029U, 0x2D2D775AU, 0x0F0F111EU, 0xB0B0CB7BU, 0x5454FCA8U, 0xBBBBD66DU, 0x16163A2CU
 };
+
+__device__ unsigned char get_sbox(unsigned char b) {
+    return (TS0[b] >> 16) & 0xFF;
+}
 
 __device__ __constant__ unsigned int TSi0[256] = {
 	0x51F4A750U, 0x7E416553U, 0x1A17A4C3U, 0x3A275E96U, 0x3BAB6BCBU, 0x1F9D45F1U, 0xACFA58ABU, 0x4BE30393U, 
@@ -1014,90 +1022,223 @@ __device__ void inv_mix_columns(unsigned char* state) {
     memcpy(state, new_state, 16);
 }
 
-// AddRoundKey
+// Add RoundKey
 __device__ void add_round_key(unsigned char* state, const unsigned char* round_key) {
     for (int i = 0; i < 16; i++) {
         state[i] ^= round_key[i];
     }
 };
 
-// --- AES-256 Encryption Block Function ---
-__device__ void aes_encrypt_block(const unsigned char* in, unsigned char* out, const unsigned char* key) {
-    // Expand the 32-byte key into 15 round keys (240 bytes)
-    unsigned char round_keys[240];
-    aes256_key_expansion(key, round_keys);
+// Add Shift_rows
+__device__ void shift_rows(unsigned char *state) {
+    unsigned char t;
+    t = state[1]; state[1] = state[5]; state[5] = state[9]; state[9] = state[13]; state[13] = t;
+    t = state[2]; state[2] = state[10]; state[10] = t; t = state[6]; state[6] = state[14]; state[14] = t;
+    t = state[3]; state[3] = state[15]; state[15] = state[11]; state[11] = state[7]; state[7] = t;
+}
 
-    // Initialize state with input
+// Add aes256_key_expansion
+__device__ void aes256_key_expansion(const unsigned char *key, unsigned char *w) {
+    unsigned int *ww = (unsigned int *)w;
+    for (int i = 0; i < 8; i++) ww[i] = ((unsigned int *)key)[i];
+    for (int i = 8; i < 60; i++) {
+        unsigned int temp = ww[i - 1];
+        if (i % 8 == 0) {
+            temp = (temp << 8) | (temp >> 24);
+            temp = get_sbox(temp) | (get_sbox(temp >> 8) << 8) | (get_sbox(temp >> 16) << 16) | (get_sbox(temp >> 24) << 24);
+            temp ^= rcon[i / 8];
+        } else if (i % 8 == 4) {
+            temp = get_sbox(temp) | (get_sbox(temp >> 8) << 8) | (get_sbox(temp >> 16) << 16) | (get_sbox(temp >> 24) << 24);
+        }
+        ww[i] = ww[i - 8] ^ temp;
+    }
+}
+
+// --- AES-256 Encryption Block Function ---
+__device__ void aes_encrypt_block(const unsigned char *in, unsigned char *out, const unsigned char *key) {
     unsigned char state[16];
     memcpy(state, in, 16);
-
-    // Initial AddRoundKey with the last round key (round 14)
-    add_round_key(state, round_keys + 14 * 16);
-
-    // Rounds 13 to 1
-    for (int round = 13; round >= 1; round--) {
-        inv_shift_rows(state);
-        inv_sub_bytes(state);
-        add_round_key(state, round_keys + round * 16);
-        inv_mix_columns(state);
+    unsigned char rk[240];
+    aes256_key_expansion(key, rk);
+    add_round_key(state, rk);
+    for (int r = 1; r < 14; r++) {
+        unsigned int t0 = TS0[state[0]] ^ TS1[state[5]] ^ TS2[state[10]] ^ TS3[state[15]] ^ ((unsigned int *)rk)[r * 4];
+        unsigned int t1 = TS0[state[1]] ^ TS1[state[6]] ^ TS2[state[11]] ^ TS3[state[12]] ^ ((unsigned int *)rk)[r * 4 + 1];
+        unsigned int t2 = TS0[state[2]] ^ TS1[state[7]] ^ TS2[state[8]] ^ TS3[state[13]] ^ ((unsigned int *)rk)[r * 4 + 2];
+        unsigned int t3 = TS0[state[3]] ^ TS1[state[4]] ^ TS2[state[9]] ^ TS3[state[14]] ^ ((unsigned int *)rk)[r * 4 + 3];
+        *(unsigned int *)(state + 0) = t0;
+        *(unsigned int *)(state + 4) = t1;
+        *(unsigned int *)(state + 8) = t2;
+        *(unsigned int *)(state + 12) = t3;
     }
-
-    // Final round (no InvMixColumns)
-    inv_shift_rows(state);
-    inv_sub_bytes(state);
-    add_round_key(state, round_keys);
-
-    // Copy result to output
+    for (int i = 0; i < 16; i++) state[i] = get_sbox(state[i]);
+    shift_rows(state);
+    add_round_key(state, rk + 224);
     memcpy(out, state, 16);
 }
 
+// Add SHA256 functions
+__device__ void sha256_init(uint32_t *h) {
+    h[0] = 0x6a09e667; h[1] = 0xbb67ae85; h[2] = 0x3c6ef372; h[3] = 0xa54ff53a;
+    h[4] = 0x510e527f; h[5] = 0x9b05688c; h[6] = 0x1f83d9ab; h[7] = 0x5be0cd19;
+}
+
+__device__ void sha256_transform(const unsigned char *data, uint32_t *h) {
+    uint32_t w[64];
+    for (int i = 0; i < 16; i++) {
+        w[i] = (data[i * 4] << 24) | (data[i * 4 + 1] << 16) | (data[i * 4 + 2] << 8) | data[i * 4 + 3];
+    }
+    for (int i = 16; i < 64; i++) {
+        uint32_t s0 = (w[i - 15] >> 7 | w[i - 15] << 25) ^ (w[i - 15] >> 18 | w[i - 15] << 14) ^ (w[i - 15] >> 3);
+        uint32_t s1 = (w[i - 2] >> 17 | w[i - 2] << 15) ^ (w[i - 2] >> 19 | w[i - 2] << 13) ^ (w[i - 2] >> 10);
+        w[i] = w[i - 16] + s0 + w[i - 7] + s1;
+    }
+    uint32_t a = h[0], b = h[1], c = h[2], d = h[3], e = h[4], f = h[5], g = h[6], hh = h[7];
+    for (int i = 0; i < 64; i++) {
+        uint32_t s1 = (e >> 6 | e << 26) ^ (e >> 11 | e << 21) ^ (e >> 25 | e << 7);
+        uint32_t ch = (e & f) ^ (~e & g);
+        uint32_t temp1 = hh + s1 + ch + k[i] + w[i];
+        uint32_t s0 = (a >> 2 | a << 30) ^ (a >> 13 | a << 19) ^ (a >> 22 | a << 10);
+        uint32_t maj = (a & b) ^ (a & c) ^ (b & c);
+        uint32_t temp2 = s0 + maj;
+        hh = g; g = f; f = e; e = d + temp1; d = c; c = b; b = a; a = temp1 + temp2;
+    }
+    h[0] += a; h[1] += b; h[2] += c; h[3] += d; h[4] += e; h[5] += f; h[6] += g; h[7] += hh;
+}
+
+__device__ void sha256(const unsigned char *data, size_t len, unsigned char *hash) {
+    uint32_t h[8];
+    sha256_init(h);
+    size_t off = 0;
+    while (len >= 64) {
+        sha256_transform(data + off, h);
+        off += 64; len -= 64;
+    }
+    unsigned char buf[64];
+    memcpy(buf, data + off, len);
+    buf[len] = 0x80;
+    if (len > 55) {
+        memset(buf + len + 1, 0, 63 - len);
+        sha256_transform(buf, h);
+        memset(buf, 0, 64);
+    } else {
+        memset(buf + len + 1, 0, 55 - len);
+    }
+    uint64_t bitlen = (off + len) * 8;
+    buf[56] = bitlen >> 56; buf[57] = bitlen >> 48; buf[58] = bitlen >> 40; buf[59] = bitlen >> 32;
+    buf[60] = bitlen >> 24; buf[61] = bitlen >> 16; buf[62] = bitlen >> 8; buf[63] = bitlen;
+    sha256_transform(buf, h);
+    for (int i = 0; i < 8; i++) {
+        hash[i * 4] = h[i] >> 24; hash[i * 4 + 1] = h[i] >> 16;
+        hash[i * 4 + 2] = h[i] >> 8; hash[i * 4 + 3] = h[i];
+    }
+}
+
+// Add HMAC-SHA256 function
+__device__ void hmac_sha256(const unsigned char *key, size_t keylen, const unsigned char *msg, size_t msglen, unsigned char *out) {
+    unsigned char kpad[64];
+    memset(kpad, 0, 64);
+    if (keylen > 64) {
+        sha256(key, keylen, kpad);
+    } else {
+        memcpy(kpad, key, keylen);
+    }
+    unsigned char inner[64 + 1024]; // Assume msglen <=1024 for stack
+    for (int i = 0; i < 64; i++) inner[i] = kpad[i] ^ 0x36;
+    memcpy(inner + 64, msg, msglen);
+    unsigned char temp[32];
+    sha256(inner, 64 + msglen, temp);
+    unsigned char outer[64 + 32];
+    for (int i = 0; i < 64; i++) outer[i] = kpad[i] ^ 0x5c;
+    memcpy(outer + 64, temp, 32);
+    sha256(outer, 64 + 32, out);
+}
+
+// Add PDKDF2 function
+__device__ void pbkdf2_hmac_sha256(const unsigned char *pass, size_t passlen, const unsigned char *salt, size_t saltlen, int iterations, unsigned char *dk, size_t dklen) {
+    unsigned char tmp[32];
+    unsigned char buf[64 + 4]; // Salt max 64
+    memcpy(buf, salt, saltlen);
+    int block = 1;
+    size_t off = 0;
+    while (off < dklen) {
+        buf[saltlen] = block >> 24; buf[saltlen + 1] = block >> 16;
+        buf[saltlen + 2] = block >> 8; buf[saltlen + 3] = block;
+        hmac_sha256(pass, passlen, buf, saltlen + 4, tmp);
+        unsigned char u[32];
+        memcpy(u, tmp, 32);
+        for (int i = 1; i < iterations; i++) {
+            hmac_sha256(pass, passlen, u, 32, u);
+            for (int j = 0; j < 32; j++) tmp[j] ^= u[j];
+        }
+        size_t cp = (dklen - off > 32) ? 32 : dklen - off;
+        memcpy(dk + off, tmp, cp);
+        off += cp;
+        block++;
+    }
+}
+
 // AES Encryption in CCM mode
-__device__ bool aes_ccm_decrypt(
-    const unsigned char* encrypted, int encrypted_len,
-    const unsigned char* key, const unsigned char* nonce, int nonce_len,
-    unsigned char* decrypted) {
+__device__ bool aes_ccm_decrypt(const unsigned char *encrypted, int encrypted_len, const unsigned char *key, const unsigned char *nonce, int nonce_len, unsigned char *decrypted) {
     const int TAG_LEN = 12;
     const int AES_BLOCK_SIZE = 16;
-    int ciphertext_len = encrypted_len - TAG_LEN; // 60 - 12 = 48 bytes
-    if (ciphertext_len <= 0 || ciphertext_len % AES_BLOCK_SIZE != 0) return false;
-
-    // Separate ciphertext and tag
+    int ciphertext_len = encrypted_len - TAG_LEN;
+    if (ciphertext_len <= 0 || nonce_len != 12) return false;
+    int L = 15 - nonce_len; // 3
     unsigned char ciphertext[48];
     unsigned char tag[12];
     memcpy(ciphertext, encrypted, ciphertext_len);
     memcpy(tag, encrypted + ciphertext_len, TAG_LEN);
-
-    // Generate counter blocks (simplified, nonce + counter)
-    unsigned char counter[AES_BLOCK_SIZE];
-    memcpy(counter, nonce, nonce_len); // 16-byte nonce fits block
-    counter[15] = 1; // Initial counter
-
-    // Decrypt using CTR mode
-    unsigned char key_stream[48];
+    // CTR decryption
+    unsigned char counter[16];
+    counter[0] = L - 1; // 0x02
+    memcpy(counter + 1, nonce, nonce_len);
+    memset(counter + 1 + nonce_len, 0, L);
+    unsigned char key_stream_block[16];
+    int ctr = 1;
     for (int i = 0; i < ciphertext_len; i += AES_BLOCK_SIZE) {
-        aes_encrypt_block(counter, key_stream + i, key); // Encrypt counter
-        counter[15]++; // Increment counter
+        unsigned char ctr_counter[16];
+        memcpy(ctr_counter, counter, 16);
+        unsigned char c_val = ctr;
+        for (int j = L - 1; j >= 0; j--) {
+            ctr_counter[15 - j] = c_val & 0xFF;
+            c_val >>= 8;
+        }
+        aes_encrypt_block(ctr_counter, key_stream_block, key);
+        int cp = min(AES_BLOCK_SIZE, ciphertext_len - i);
+        for (int j = 0; j < cp; j++) {
+            decrypted[i + j] = ciphertext[i + j] ^ key_stream_block[j];
+        }
+        ctr++;
     }
-    for (int i = 0; i < ciphertext_len; i++) {
-        decrypted[i] = ciphertext[i] ^ key_stream[i];
+    // CBC-MAC computation
+    int flags = ((TAG_LEN - 2) / 2 << 3) | (L - 1); // 0x2A
+    unsigned char B0[16];
+    B0[0] = flags;
+    memcpy(B0 + 1, nonce, nonce_len);
+    unsigned char m_len = ciphertext_len;
+    for (int j = L - 1; j >= 0; j--) {
+        B0[15 - j] = m_len & 0xFF;
+        m_len >>= 8;
     }
-
-    // Compute CBC-MAC (simplified, no AAD)
-    unsigned char mac[AES_BLOCK_SIZE] = {0};
-    unsigned char block[AES_BLOCK_SIZE];
+    unsigned char mac[16];
+    aes_encrypt_block(B0, mac, key);
     for (int i = 0; i < ciphertext_len; i += AES_BLOCK_SIZE) {
-        for (int j = 0; j < AES_BLOCK_SIZE; j++) {
-            block[j] = (i + j < ciphertext_len) ? decrypted[i + j] : 0;
-        }
-        for (int j = 0; j < AES_BLOCK_SIZE; j++) {
-            mac[j] ^= block[j];
-        }
-        aes_encrypt_block(mac, mac, key);
+        unsigned char block[16] = {0};
+        int cp = min(AES_BLOCK_SIZE, ciphertext_len - i);
+        memcpy(block, decrypted + i, cp);
+        for (int j = 0; j < AES_BLOCK_SIZE; j++) block[j] ^= mac[j];
+        aes_encrypt_block(block, mac, key);
     }
-
-    // Compare MAC (first 12 bytes)
+    // Compute tag
+    unsigned char counter0[16];
+    counter0[0] = L - 1; // 0x02
+    memcpy(counter0 + 1, nonce, nonce_len);
+    memset(counter0 + 1 + nonce_len, 0, L);
+    unsigned char S0[16];
+    aes_encrypt_block(counter0, S0, key);
     for (int i = 0; i < TAG_LEN; i++) {
-        if (mac[i] != tag[i]) return false;
+        if ((S0[i] ^ mac[i]) != tag[i]) return false;
     }
     return true;
 }
@@ -1108,9 +1249,14 @@ __device__ bool verify_decrypted(const unsigned char* decrypted, size_t len) {
     return (decrypted[0] == 'V' && decrypted[1] == 'M' && decrypted[2] == 'K' && decrypted[3] == 0);
 }
 
+// Add recovery_password_to_key function
+__device__ void recovery_password_to_key(const unsigned char *password, const unsigned char *salt, int salt_len, int iterations, unsigned char *key) {
+    pbkdf2_hmac_sha256(password, 110, salt, salt_len, iterations, key, 32);
+}
+
 // Generate a BitLocker recovery password based on an index
 __device__ void generate_password(unsigned long long index, unsigned char* password) {
-    const unsigned long long base = 90910; // Number of possible values per block (0 to 999999 / 11)
+    const unsigned long long base = 90909ULL; // Number of possible values per block (0 to 999999 / 11)
     const int pow10[] = {1, 10, 100, 1000, 10000, 100000};
     int pos = 0;
     for (int i = 0; i < 8; i++) {
@@ -1150,7 +1296,7 @@ __global__ void brute_force_kernel(
 
     unsigned char decrypted[48]; // 48 bytes for VMK
     bool success = aes_ccm_decrypt(encrypted_data, encrypted_len, derived_key, nonce, nonce_len, decrypted);
-
+	if (success && verify_decrypted(decrypted, 48)) {
     if (success) {
         if (atomicCAS(found_flag, 0, 1) == 0) {
             memcpy(result_password, password, 110);
@@ -1171,21 +1317,23 @@ int main(int argc, char* argv[]) {
         HashParams params = parse_hash(hash);
 
         // Allocate device memory
-        unsigned char *d_nonce, *d_encrypted, *d_result_password;
+        unsigned char *d_nonce, *d_slat, *d_encrypted, *d_result_password;
         int *d_found_flag;
         CUDA_CHECK(cudaMalloc(&d_nonce, params.iv.size()));
+		CUDA_CHECK(cudaMalloc(&d_salt, params.salt.size()));
         CUDA_CHECK(cudaMalloc(&d_encrypted, params.encrypted_data.size()));
         CUDA_CHECK(cudaMalloc(&d_found_flag, sizeof(int)));
         CUDA_CHECK(cudaMalloc(&d_result_password, 110));
 
         // Copy data to device
         CUDA_CHECK(cudaMemcpy(d_nonce, params.iv.data(), params.iv.size(), cudaMemcpyHostToDevice));
+		CUDA_CHECK(cudaMemcpy(d_salt, params.salt.data(), params.salt.size(), cudaMemcpyHostToDevice));
         CUDA_CHECK(cudaMemcpy(d_encrypted, params.encrypted_data.data(), params.encrypted_data.size(), cudaMemcpyHostToDevice));
         CUDA_CHECK(cudaMemset(d_found_flag, 0, sizeof(int)));
 
         // Launch configuration
-        int threads_per_block = 1024; // Adjusted for better GPU utilization
-        int blocks = 1024;
+        int threads_per_block = 256; // Adjusted for better GPU utilization
+        int blocks = 256;
         unsigned long long candidates_per_launch = static_cast<unsigned long long>(blocks) * threads_per_block;
 
         // Start status threads
@@ -1193,12 +1341,13 @@ int main(int argc, char* argv[]) {
         std::thread gpu_thread(display_gpu_utilization);
 
         // Define search space limit
-        unsigned long long max_index = 90910ULL * 90910 * 90910; // Example limit
+        unsigned long long max_index = 1ULL;
+		for (int i = 0; i < 8; i++) max_index *= 90909ULL;
 
         // Brute-force loop
         for (unsigned long long start = 0; start < max_index; start += candidates_per_launch) {
             brute_force_kernel<<<blocks, threads_per_block>>>(
-                nullptr, 0, 0, // Salt and iterations unused
+                d_salt, params.salt.size(), params.iterations,
                 d_nonce, params.iv.size(),
                 d_encrypted, params.encrypted_data.size(),
                 start, d_found_flag, d_result_password
@@ -1222,16 +1371,6 @@ int main(int argc, char* argv[]) {
                 break;
             }
         }
-		
-	// Add Checkpointing
-	unsigned long long start = 0;
-	std::ifstream checkpoint("checkpoint.txt");
-	if (checkpoint) checkpoint >> start;
-
-	if (start % (candidates_per_launch * 1000) == 0) {
-    std::ofstream checkpoint("checkpoint.txt");
-    checkpoint << start << std::endl;
-	}
 
         // Stop status threads
         running = false;
@@ -1240,6 +1379,7 @@ int main(int argc, char* argv[]) {
 
         // Free device memory
         cudaFree(d_nonce);
+		cudaFree(d_salt);
         cudaFree(d_encrypted);
         cudaFree(d_found_flag);
         cudaFree(d_result_password);
