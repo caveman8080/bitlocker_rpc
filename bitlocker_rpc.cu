@@ -11,34 +11,9 @@
 #include <chrono>
 #include <cstdlib>
 
-#define HMAC_BLOCK_SIZE 64
-#define SHA256_HASH_LEN 32
-#define MAX_SALT_LEN 64
-
 #define CUDA_CHECK(call) \
     { cudaError_t err = call; if (err != cudaSuccess) { \
         std::cerr << "CUDA error: " << cudaGetErrorString(err) << std::endl; exit(1); } }
-		
-// Global variables for status updates
-bool running = true;
-unsigned long long total_candidates_tested = 0;
-
-// Function to display progress
-void display_progress() {
-    while (running) {
-        std::cout << "Total candidates tested: " << total_candidates_tested << std::endl;
-        std::this_thread::sleep_for(std::chrono::seconds(10)); // Update every 10 seconds
-    }
-}
-
-// Function to display GPU utilization
-void display_gpu_utilization() {
-    while (running) {
-        std::cout << "GPU Utilization: ";
-        system("nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits");
-        std::this_thread::sleep_for(std::chrono::seconds(10)); // Update every 10 seconds
-    }
-}
 
 __device__ __constant__ uint32_t k[64] = {
     0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
@@ -64,7 +39,6 @@ __device__ __constant__ unsigned int rcon[11] = {
     0x10000000, 0x20000000, 0x40000000, 0x80000000, 0x1B000000, 0x36000000
 };
 
-// AES-256 encrypt block
 __device__ __constant__ unsigned int TS0[256] = {
     0xC66363A5U, 0xF87C7C84U, 0xEE777799U, 0xF67B7B8DU, 0xFFF2F20DU, 0xD66B6BBDU, 0xDE6F6FB1U, 0x91C5C554U, 
     0x60303050U, 0x02010103U, 0xCE6767A9U, 0x562B2B7DU, 0xE7FEFE19U, 0xB5D7D762U, 0x4DABABE6U, 0xEC76769AU, 
@@ -136,7 +110,7 @@ __device__ __constant__ unsigned int TS1[256] = {
 };
 
 __device__ __constant__ unsigned int TS2[256] = {
-	0x63A5C663U, 0x7C84F87CU, 0x7799EE77U, 0x7B8DF67BU, 0xF20DFFF2U, 0x6BBDD66BU, 0x6FB1DE6FU, 0xC55491C5U, 
+    0x63A5C663U, 0x7C84F87CU, 0x7799EE77U, 0x7B8DF67BU, 0xF20DFFF2U, 0x6BBDD66BU, 0x6FB1DE6FU, 0xC55491C5U, 
     0x30506030U, 0x01030201U, 0x67A9CE67U, 0x2B7D562BU, 0xFE19E7FEU, 0xD762B5D7U, 0xABE64DABU, 0x769AEC76U, 
     0xCA458FCAU, 0x829D1F82U, 0xC94089C9U, 0x7D87FA7DU, 0xFA15EFFAU, 0x59EBB259U, 0x47C98E47U, 0xF00BFBF0U, 
     0xADEC41ADU, 0xD467B3D4U, 0xA2FD5FA2U, 0xAFEA45AFU, 0x9CBF239CU, 0xA4F753A4U, 0x7296E472U, 0xC05B9BC0U, 
@@ -171,7 +145,7 @@ __device__ __constant__ unsigned int TS2[256] = {
 };
 
 __device__ __constant__ unsigned int TS3[256] = {
-	0x6363A5C6U, 0x7C7C84F8U, 0x777799EEU, 0x7B7B8DF6U, 0xF2F20DFFU, 0x6B6BBDD6U, 0x6F6FB1DEU, 0xC5C55491U, 
+    0x6363A5C6U, 0x7C7C84F8U, 0x777799EEU, 0x7B7B8DF6U, 0xF2F20DFFU, 0x6B6BBDD6U, 0x6F6FB1DEU, 0xC5C55491U, 
     0x30305060U, 0x01010302U, 0x6767A9CEU, 0x2B2B7D56U, 0xFEFE19E7U, 0xD7D762B5U, 0xABABE64DU, 0x76769AECU, 
     0xCACA458FU, 0x82829D1FU, 0xC9C94089U, 0x7D7D87FAU, 0xFAFA15EFU, 0x5959EBB2U, 0x4747C98EU, 0xF0F00BFBU, 
     0xADADEC41U, 0xD4D467B3U, 0xA2A2FD5FU, 0xAFAFEA45U, 0x9C9CBF23U, 0xA4A4F753U, 0x727296E4U, 0xC0C05B9BU, 
@@ -180,8 +154,8 @@ __device__ __constant__ unsigned int TS3[256] = {
     0x04040C08U, 0xC7C75295U, 0x23236546U, 0xC3C35E9DU, 0x18182830U, 0x9696A137U, 0x05050F0AU, 0x9A9AB52FU, 
     0x0707090EU, 0x12123624U, 0x80809B1BU, 0xE2E23DDFU, 0xEBEB26CDU, 0x2727694EU, 0xB2B2CD7FU, 0x75759FEAU, 
     0x09091B12U, 0x83839E1DU, 0x2C2C7458U, 0x1A1A2E34U, 0x1B1B2D36U, 0x6E6EB2DCU, 0x5A5AEEB4U, 0xA0A0FB5BU, 
-	0x5252F6A4U, 0x3B3B4D76U, 0xD6D661B7U, 0xB3B3CE7DU, 0x29297B52U, 0xE3E33EDDU, 0x2F2F715EU, 0x84849713U, 
-	0x5353F5A6U, 0xD1D168B9U, 0x00000000U, 0xEDED2CC1U, 0x20206040U, 0xFCFC1FE3U, 0xB1B1C879U, 0x5B5BEDB6U, 
+    0x5252F6A4U, 0x3B3B4D76U, 0xD6D661B7U, 0xB3B3CE7DU, 0x29297B52U, 0xE3E33EDDU, 0x2F2F715EU, 0x84849713U, 
+    0x5353F5A6U, 0xD1D168B9U, 0x00000000U, 0xEDED2CC1U, 0x20206040U, 0xFCFC1FE3U, 0xB1B1C879U, 0x5B5BEDB6U, 
     0x6A6ABED4U, 0xCBCB468DU, 0xBEBED967U, 0x39394B72U, 0x4A4ADE94U, 0x4C4CD498U, 0x5858E8B0U, 0xCFCF4A85U, 
     0xD0D06BBBU, 0xEFEF2AC5U, 0xAAAAE54FU, 0xFBFB16EDU, 0x4343C586U, 0x4D4DD79AU, 0x33335566U, 0x85859411U, 
     0x4545CF8AU, 0xF9F910E9U, 0x02020604U, 0x7F7F81FEU, 0x5050F0A0U, 0x3C3C4478U, 0x9F9FBA25U, 0xA8A8E34BU, 
@@ -209,827 +183,6 @@ __device__ unsigned char get_sbox(unsigned char b) {
     return (TS0[b] >> 16) & 0xFF;
 }
 
-__device__ __constant__ unsigned int TSi0[256] = {
-	0x51F4A750U, 0x7E416553U, 0x1A17A4C3U, 0x3A275E96U, 0x3BAB6BCBU, 0x1F9D45F1U, 0xACFA58ABU, 0x4BE30393U, 
-    0x2030FA55U, 0xAD766DF6U, 0x88CC7691U, 0xF5024C25U, 0x4FE5D7FCU, 0xC52ACBD7U, 0x26354480U, 0xB562A38FU, 
-    0xDEB15A49U, 0x25BA1B67U, 0x45EA0E98U, 0x5DFEC0E1U, 0xC32F7502U, 0x814CF012U, 0x8D4697A3U, 0x6BD3F9C6U, 
-    0x038F5FE7U, 0x15929C95U, 0xBF6D7AEBU, 0x955259DAU, 0xD4BE832DU, 0x587421D3U, 0x49E06929U, 0x8EC9C844U, 
-    0x75C2896AU, 0xF48E7978U, 0x99583E6BU, 0x27B971DDU, 0xBEE14FB6U, 0xF088AD17U, 0xC920AC66U, 0x7DCE3AB4U, 
-    0x63DF4A18U, 0xE51A3182U, 0x97513360U, 0x62537F45U, 0xB16477E0U, 0xBB6BAE84U, 0xFE81A01CU, 0xF9082B94U, 
-    0x70486858U, 0x8F45FD19U, 0x94DE6C87U, 0x527BF8B7U, 0xAB73D323U, 0x724B02E2U, 0xE31F8F57U, 0x6655AB2AU, 
-    0xB2EB2807U, 0x2FB5C203U, 0x86C57B9AU, 0xD33708A5U, 0x302887F2U, 0x23BFA5B2U, 0x02036ABAU, 0xED16825CU, 
-    0x8ACF1C2BU, 0xA779B492U, 0xF307F2F0U, 0x4E69E2A1U, 0x65DAF4CDU, 0x0605BED5U, 0xD134621FU, 0xC4A6FE8AU, 
-    0x342E539DU, 0xA2F355A0U, 0x058AE132U, 0xA4F6EB75U, 0x0B83EC39U, 0x4060EFAAU, 0x5E719F06U, 0xBD6E1051U, 
-    0x3E218AF9U, 0x96DD063DU, 0xDD3E05AEU, 0x4DE6BD46U, 0x91548DB5U, 0x71C45D05U, 0x0406D46FU, 0x605015FFU, 
-    0x1998FB24U, 0xD6BDE997U, 0x894043CCU, 0x67D99E77U, 0xB0E842BDU, 0x07898B88U, 0xE7195B38U, 0x79C8EEDBU, 
-    0xA17C0A47U, 0x7C420FE9U, 0xF8841EC9U, 0x00000000U, 0x09808683U, 0x322BED48U, 0x1E1170ACU, 0x6C5A724EU, 
-    0xFD0EFFFBU, 0x0F853856U, 0x3DAED51EU, 0x362D3927U, 0x0A0FD964U, 0x685CA621U, 0x9B5B54D1U, 0x24362E3AU, 
-    0x0C0A67B1U, 0x9357E70FU, 0xB4EE96D2U, 0x1B9B919EU, 0x80C0C54FU, 0x61DC20A2U, 0x5A774B69U, 0x1C121A16U, 
-    0xE293BA0AU, 0xC0A02AE5U, 0x3C22E043U, 0x121B171DU, 0x0E090D0BU, 0xF28BC7ADU, 0x2DB6A8B9U, 0x141EA9C8U, 
-    0x57F11985U, 0xAF75074CU, 0xEE99DDBBU, 0xA37F60FDU, 0xF701269FU, 0x5C72F5BCU, 0x44663BC5U, 0x5BFB7E34U, 
-    0x8B432976U, 0xCB23C6DCU, 0xB6EDFC68U, 0xB8E4F163U, 0xD731DCCAU, 0x42638510U, 0x13972240U, 0x84C61120U, 
-    0x854A247DU, 0xD2BB3DF8U, 0xAEF93211U, 0xC729A16DU, 0x1D9E2F4BU, 0xDCB230F3U, 0x0D8652ECU, 0x77C1E3D0U, 
-    0x2BB3166CU, 0xA970B999U, 0x119448FAU, 0x47E96422U, 0xA8FC8CC4U, 0xA0F03F1AU, 0x567D2CD8U, 0x223390EFU, 
-    0x87494EC7U, 0xD938D1C1U, 0x8CCAA2FEU, 0x98D40B36U, 0xA6F581CFU, 0xA57ADE28U, 0xDAB78E26U, 0x3FADBFA4U, 
-    0x2C3A9DE4U, 0x5078920DU, 0x6A5FCC9BU, 0x547E4662U, 0xF68D13C2U, 0x90D8B8E8U, 0x2E39F75EU, 0x82C3AFF5U, 
-    0x9F5D80BEU, 0x69D0937CU, 0x6FD52DA9U, 0xCF2512B3U, 0xC8AC993BU, 0x10187DA7U, 0xE89C636EU, 0xDB3BBB7BU, 
-    0xCD267809U, 0x6E5918F4U, 0xEC9AB701U, 0x834F9AA8U, 0xE6956E65U, 0xAAFFE67EU, 0x21BCCF08U, 0xEF15E8E6U, 
-    0xBAE79BD9U, 0x4A6F36CEU, 0xEA9F09D4U, 0x29B07CD6U, 0x31A4B2AFU, 0x2A3F2331U, 0xC6A59430U, 0x35A266C0U, 
-    0x744EBC37U, 0xFC82CAA6U, 0xE090D0B0U, 0x33A7D815U, 0xF104984AU, 0x41ECDAF7U, 0x7FCD500EU, 0x1791F62FU, 
-    0x764DD68DU, 0x43EFB04DU, 0xCCAA4D54U, 0xE49604DFU, 0x9ED1B5E3U, 0x4C6A881BU, 0xC12C1FB8U, 0x4665517FU, 
-    0x9D5EEA04U, 0x018C355DU, 0xFA877473U, 0xFB0B412EU, 0xB3671D5AU, 0x92DBD252U, 0xE9105633U, 0x6DD64713U, 
-    0x9AD7618CU, 0x37A10C7AU, 0x59F8148EU, 0xEB133C89U, 0xCEA927EEU, 0xB761C935U, 0xE11CE5EDU, 0x7A47B13CU, 
-    0x9CD2DF59U, 0x55F2733FU, 0x1814CE79U, 0x73C737BFU, 0x53F7CDEAU, 0x5FFDAA5BU, 0xDF3D6F14U, 0x7844DB86U, 
-    0xCAAFF381U, 0xB968C43EU, 0x3824342CU, 0xC2A3405FU, 0x161DC372U, 0xBCE2250CU, 0x283C498BU, 0xFF0D9541U, 
-    0x39A80171U, 0x080CB3DEU, 0xD8B4E49CU, 0x6456C190U, 0x7BCB8461U, 0xD532B670U, 0x486C5C74U, 0xD0B85742U
-};
-
-// Add memccpy
-__device__ void memcpy(unsigned char *dest, const unsigned char *src, size_t len) {
-    for (size_t i = 0; i < len; i++) {
-        dest[i] = src[i];
-    }
-};
-
-// Structure to hold parsed hash parameters
-struct HashParams {
-    std::vector<unsigned char> salt;
-    int iterations;
-    std::vector<unsigned char> iv;
-    std::vector<unsigned char> encrypted_data;
-};
-
-// Convert a hex string to a byte vector
-std::vector<unsigned char> hex_to_bytes(const std::string& hex) {
-    std::vector<unsigned char> bytes;
-    if (hex.length() % 2 != 0) {
-        throw std::runtime_error("Hex string length must be even");
-    }
-    for (size_t i = 0; i < hex.length(); i += 2) {
-        std::string byte_str = hex.substr(i, 2);
-        unsigned char byte = static_cast<unsigned char>(std::stoi(byte_str, nullptr, 16));
-        bytes.push_back(byte);
-    }
-    return bytes;
-};
-
-// Parse the BitLocker hash string into its components
-HashParams parse_hash(const std::string& hash) {
-    HashParams params;
-    std::vector<std::string> fields;
-    std::stringstream ss(hash);
-    std::string field;
-    while (std::getline(ss, field, '$')) {
-        if (!field.empty()) {
-            fields.push_back(field);
-        }
-    }
-    if (fields.size() < 9 || fields[0] != "bitlocker") {
-        throw std::runtime_error("Invalid BitLocker hash format");
-    }
-    try {
-        size_t idx = 1; // Start after "bitlocker"
-        idx++; // Skip type field
-        int salt_len = std::stoi(fields[idx++]);
-        std::string salt_hex = fields[idx++];
-        if (salt_hex.length() != static_cast<size_t>(salt_len) * 2) {
-            throw std::runtime_error("Salt length mismatch");
-        }
-        params.salt = hex_to_bytes(salt_hex);
-        params.iterations = std::stoi(fields[idx++]);
-        int iv_len = std::stoi(fields[idx++]);
-        std::string iv_hex = fields[idx++];
-        if (iv_hex.length() != static_cast<size_t>(iv_len) * 2) {
-            throw std::runtime_error("IV length mismatch");
-        }
-        params.iv = hex_to_bytes(iv_hex);
-        int encrypted_len = std::stoi(fields[idx++]);
-        std::string encrypted_hex = fields[idx++];
-        if (encrypted_hex.length() != static_cast<size_t>(encrypted_len) * 2) {
-            throw std::runtime_error("Encrypted data length mismatch");
-        }
-        params.encrypted_data = hex_to_bytes(encrypted_hex);
-    } catch (const std::exception& e) {
-        throw std::runtime_error("Failed to parse hash: " + std::string(e.what()));
-    }
-    return params;
-};
-
-// BitCracker macros
-#define ROR(x, i) (((x) << (32 - (i))) | ((x) >> (i)))
-#define ROR7(x) (((x) << 25) | ((x) >> 7))
-#define ROR18(x) (((x) << 14) | ((x) >> 18))
-#define ROR17(x) (((x) << 15) | ((x) >> 17))
-#define ROR19(x) (((x) << 13) | ((x) >> 19))
-#define ROR6(x) (((x) << 26) | ((x) >> 6))
-#define ROR11(x) (((x) << 21) | ((x) >> 11))
-#define ROR25(x) (((x) << 7) | ((x) >> 25))
-#define ROR2(x) (((x) << 30) | ((x) >> 2))
-#define ROR13(x) (((x) << 19) | ((x) >> 13))
-#define ROR22(x) (((x) << 10) | ((x) >> 22))
-
-static __device__ __forceinline__ uint32_t LOP3LUT_XOR(uint32_t a, uint32_t b, uint32_t c) {
-#if (__CUDA_ARCH__ >= 500)
-    uint32_t d;
-    asm("lop3.b32 %0, %1, %2, %3, 0x96;" : "=r"(d) : "r"(a), "r"(b), "r"(c));
-    return d;
-#else
-    return a ^ b ^ c;
-#endif
-};
-
-static __device__ __forceinline__ uint32_t LOP3LUT_XORAND(uint32_t a, uint32_t b, uint32_t c) {
-#if (__CUDA_ARCH__ >= 500)
-    uint32_t d;
-    asm("lop3.b32 %0, %1, %2, %3, 0xE8;" : "=r"(d) : "r"(a), "r"(b), "r"(c));
-    return d;
-#else
-    return (a & b) ^ c;
-#endif
-};
-
-static __device__ __forceinline__ uint32_t LOP3LUT_ANDOR(uint32_t a, uint32_t b, uint32_t c) {
-#if (__CUDA_ARCH__ >= 500)
-    uint32_t d;
-    asm("lop3.b32 %0, %1, %2, %3, 0xEA;" : "=r"(d) : "r"(a), "r"(b), "r"(c));
-    return d;
-#else
-    return (a & b) | (a & c) | (b & c);
-#endif
-};
-
-#define SCHEDULE0()  \
-    schedule0 = schedule16 + schedule25 \
-        + LOP3LUT_XOR(ROR7(schedule17), ROR18(schedule17), (schedule17 >> 3)) \
-        + LOP3LUT_XOR(ROR17(schedule30), ROR19(schedule30), (schedule30 >> 10));
-
-#define SCHEDULE1()  \
-		schedule1 = schedule17 + schedule26 \
-			+ LOP3LUT_XOR(ROR7(schedule18) , ROR18(schedule18) , (schedule18 >> 3)) \
-			+ LOP3LUT_XOR(ROR17(schedule31) , ROR19(schedule31) , (schedule31 >> 10));
-
-
-#define SCHEDULE2()  \
-		schedule2 = schedule18 + schedule27 \
-			+ LOP3LUT_XOR(ROR7(schedule19) , ROR18(schedule19) , (schedule19 >> 3)) \
-			+ LOP3LUT_XOR(ROR17(schedule0) , ROR19(schedule0) , (schedule0 >> 10));
-
-
-#define SCHEDULE3()  \
-		schedule3 = schedule19 + schedule28 \
-			+ LOP3LUT_XOR(ROR7(schedule20) , ROR18(schedule20) , (schedule20 >> 3)) \
-			+ LOP3LUT_XOR(ROR17(schedule1) , ROR19(schedule1) , (schedule1 >> 10));
-
-
-#define SCHEDULE4()  \
-		schedule4 = schedule20 + schedule29 \
-			+ LOP3LUT_XOR(ROR7(schedule21) , ROR18(schedule21) , (schedule21 >> 3)) \
-			+ LOP3LUT_XOR(ROR17(schedule2) , ROR19(schedule2) , (schedule2 >> 10));
-
-
-#define SCHEDULE5()  \
-		schedule5 = schedule21 + schedule30 \
-			+ LOP3LUT_XOR(ROR7(schedule22) , ROR18(schedule22) , (schedule22 >> 3)) \
-			+ LOP3LUT_XOR(ROR17(schedule3) , ROR19(schedule3) , (schedule3 >> 10));
-
-
-#define SCHEDULE6()  \
-		schedule6 = schedule22 + schedule31 \
-			+ LOP3LUT_XOR(ROR7(schedule23) , ROR18(schedule23) , (schedule23 >> 3)) \
-			+ LOP3LUT_XOR(ROR17(schedule4) , ROR19(schedule4) , (schedule4 >> 10));
-
-
-#define SCHEDULE7()  \
-		schedule7 = schedule23 + schedule0 \
-			+ LOP3LUT_XOR(ROR7(schedule24) , ROR18(schedule24) , (schedule24 >> 3)) \
-			+ LOP3LUT_XOR(ROR17(schedule5) , ROR19(schedule5) , (schedule5 >> 10));
-
-
-#define SCHEDULE8()  \
-		schedule8 = schedule24 + schedule1 \
-			+ LOP3LUT_XOR(ROR7(schedule25) , ROR18(schedule25) , (schedule25 >> 3)) \
-			+ LOP3LUT_XOR(ROR17(schedule6) , ROR19(schedule6) , (schedule6 >> 10));
-
-
-#define SCHEDULE9()  \
-		schedule9 = schedule25 + schedule2 \
-			+ LOP3LUT_XOR(ROR7(schedule26) , ROR18(schedule26) , (schedule26 >> 3)) \
-			+ LOP3LUT_XOR(ROR17(schedule7) , ROR19(schedule7) , (schedule7 >> 10));
-
-
-#define SCHEDULE10()  \
-		schedule10 = schedule26 + schedule3 \
-			+ LOP3LUT_XOR(ROR7(schedule27) , ROR18(schedule27) , (schedule27 >> 3)) \
-			+ LOP3LUT_XOR(ROR17(schedule8) , ROR19(schedule8) , (schedule8 >> 10));
-
-
-#define SCHEDULE11()  \
-		schedule11 = schedule27 + schedule4 \
-			+ LOP3LUT_XOR(ROR7(schedule28) , ROR18(schedule28) , (schedule28 >> 3)) \
-			+ LOP3LUT_XOR(ROR17(schedule9) , ROR19(schedule9) , (schedule9 >> 10));
-
-
-#define SCHEDULE12()  \
-		schedule12 = schedule28 + schedule5 \
-			+ LOP3LUT_XOR(ROR7(schedule29) , ROR18(schedule29) , (schedule29 >> 3)) \
-			+ LOP3LUT_XOR(ROR17(schedule10) , ROR19(schedule10) , (schedule10 >> 10));
-
-
-#define SCHEDULE13()  \
-		schedule13 = schedule29 + schedule6 \
-			+ LOP3LUT_XOR(ROR7(schedule30) , ROR18(schedule30) , (schedule30 >> 3)) \
-			+ LOP3LUT_XOR(ROR17(schedule11) , ROR19(schedule11) , (schedule11 >> 10));
-
-
-#define SCHEDULE14()  \
-		schedule14 = schedule30 + schedule7 \
-			+ LOP3LUT_XOR(ROR7(schedule31) , ROR18(schedule31) , (schedule31 >> 3)) \
-			+ LOP3LUT_XOR(ROR17(schedule12) , ROR19(schedule12) , (schedule12 >> 10));
-
-
-#define SCHEDULE15()  \
-		schedule15 = schedule31 + schedule8 \
-			+ LOP3LUT_XOR(ROR7(schedule0) , ROR18(schedule0) , (schedule0 >> 3)) \
-			+ LOP3LUT_XOR(ROR17(schedule13) , ROR19(schedule13) , (schedule13 >> 10));
-
-#define SCHEDULE16()  \
-		schedule16 = schedule0 + schedule9  \
-			+ LOP3LUT_XOR( ROR7(schedule1), ROR18(schedule1), (schedule1 >> 3))  \
-			+ LOP3LUT_XOR( ROR17(schedule14), ROR19(schedule14), (schedule14 >> 10));
-
-#define SCHEDULE17()  \
-		schedule17 = schedule1 + schedule10  \
-			+ LOP3LUT_XOR(ROR7(schedule2) , ROR18(schedule2) , (schedule2 >> 3))  \
-			+ LOP3LUT_XOR(ROR17(schedule15) , ROR19(schedule15) , (schedule15 >> 10));
-
-#define SCHEDULE18()  \
-		schedule18 = schedule2 + schedule11  \
-			+ LOP3LUT_XOR(ROR7(schedule3) ,ROR18(schedule3) ,(schedule3 >> 3))  \
-			+ LOP3LUT_XOR(ROR17(schedule16), ROR19(schedule16), (schedule16 >> 10));
-#define SCHEDULE19()  \
-		schedule19 = schedule3 + schedule12  \
-			+ LOP3LUT_XOR(ROR7(schedule4) , ROR18(schedule4) , (schedule4 >> 3))  \
-			+ LOP3LUT_XOR(ROR17(schedule17) , ROR19(schedule17) , (schedule17 >> 10));
-
-#define SCHEDULE20()  \
-		schedule20 = schedule4 + schedule13  \
-			+ LOP3LUT_XOR(ROR7(schedule5) , ROR18(schedule5) , (schedule5 >> 3))  \
-			+ LOP3LUT_XOR(ROR17(schedule18) , ROR19(schedule18) , (schedule18 >> 10));
-
-#define SCHEDULE21()  \
-		schedule21 = schedule5 + schedule14  \
-			+ LOP3LUT_XOR(ROR7(schedule6) , ROR18(schedule6) , (schedule6 >> 3))  \
-			+ LOP3LUT_XOR(ROR17(schedule19) , ROR19(schedule19) , (schedule19 >> 10));
-
-#define SCHEDULE22()  \
-		schedule22 = schedule6 + schedule15  \
-			+ LOP3LUT_XOR(ROR7(schedule7) , ROR18(schedule7) , (schedule7 >> 3))  \
-			+ LOP3LUT_XOR(ROR17(schedule20) , ROR19(schedule20) , (schedule20 >> 10));
-
-#define SCHEDULE23()  \
-		schedule23 = schedule7 + schedule16  \
-			+ LOP3LUT_XOR(ROR7(schedule8) , ROR18(schedule8) , (schedule8 >> 3))  \
-			+ LOP3LUT_XOR(ROR17(schedule21) , ROR19(schedule21) , (schedule21 >> 10));
-
-#define SCHEDULE24()  \
-		schedule24 = schedule8 + schedule17  \
-			+ LOP3LUT_XOR(ROR7(schedule9) , ROR18(schedule9) , (schedule9 >> 3))  \
-			+ LOP3LUT_XOR(ROR17(schedule22) , ROR19(schedule22) , (schedule22 >> 10));
-
-#define SCHEDULE25()  \
-		schedule25 = schedule9 + schedule18  \
-			+ LOP3LUT_XOR(ROR7(schedule10) , ROR18(schedule10) , (schedule10 >> 3))  \
-			+ LOP3LUT_XOR(ROR17(schedule23) , ROR19(schedule23) , (schedule23 >> 10));
-
-#define SCHEDULE26()  \
-		schedule26 = schedule10 + schedule19  \
-			+ LOP3LUT_XOR(ROR7(schedule11) , ROR18(schedule11) , (schedule11 >> 3))  \
-			+ LOP3LUT_XOR(ROR17(schedule24) , ROR19(schedule24) , (schedule24 >> 10));
-
-#define SCHEDULE27()  \
-		schedule27 = schedule11 + schedule20  \
-			+ LOP3LUT_XOR(ROR7(schedule12) , ROR18(schedule12) , (schedule12 >> 3))  \
-			+ LOP3LUT_XOR(ROR17(schedule25) , ROR19(schedule25) , (schedule25 >> 10));
-
-#define SCHEDULE28()  \
-		schedule28 = schedule12 + schedule21  \
-			+ LOP3LUT_XOR(ROR7(schedule13) , ROR18(schedule13) , (schedule13 >> 3))  \
-			+ LOP3LUT_XOR(ROR17(schedule26) , ROR19(schedule26) , (schedule26 >> 10));
-
-#define SCHEDULE29()  \
-		schedule29 = schedule13 + schedule22  \
-			+ LOP3LUT_XOR(ROR7(schedule14) , ROR18(schedule14) , (schedule14 >> 3))  \
-			+ LOP3LUT_XOR(ROR17(schedule27) , ROR19(schedule27) , (schedule27 >> 10));
-
-#define SCHEDULE30()  \
-		schedule30 = schedule14 + schedule23  \
-			+ LOP3LUT_XOR(ROR7(schedule15) , ROR18(schedule15) , (schedule15 >> 3))  \
-			+ LOP3LUT_XOR(ROR17(schedule28) , ROR19(schedule28) , (schedule28 >> 10));
-			
-#define SCHEDULE31()  \
-    schedule31 = schedule15 + schedule24  \
-        + LOP3LUT_XOR(ROR7(schedule16), ROR18(schedule16), (schedule16 >> 3))  \
-        + LOP3LUT_XOR(ROR17(schedule29), ROR19(schedule29), (schedule29 >> 10));
-
-#define ALL_SCHEDULE32() \
-    SCHEDULE0() SCHEDULE1() SCHEDULE2() SCHEDULE3() \
-    SCHEDULE4() SCHEDULE5() SCHEDULE6() SCHEDULE7() \
-    SCHEDULE8() SCHEDULE9() SCHEDULE10() SCHEDULE11() \
-    SCHEDULE12() SCHEDULE13() SCHEDULE14() SCHEDULE15() \
-    SCHEDULE16() SCHEDULE17() SCHEDULE18() SCHEDULE19() \
-    SCHEDULE20() SCHEDULE21() SCHEDULE22() SCHEDULE23() \
-    SCHEDULE24() SCHEDULE25() SCHEDULE26() SCHEDULE27() \
-    SCHEDULE28() SCHEDULE29() SCHEDULE30() SCHEDULE31()
-
-#define ROUND(a, b, c, d, e, f, g, h, W, k) \
-    h += LOP3LUT_XOR(ROR6(e), ROR11(e), ROR25(e)) + LOP3LUT_XORAND(g, e, f) + k + W; \
-    d += h; \
-    h += LOP3LUT_XOR(ROR2(a), ROR13(a), ROR22(a)) + LOP3LUT_ANDOR(a, b, c);
-
-#define ALL_ROUND_B1_1() \
-    ROUND(a, b, c, d, e, f, g, h, schedule0, 0x428A2F98) \
-    ROUND(h, a, b, c, d, e, f, g, schedule1, 0x71374491) \
-    ROUND(g, h, a, b, c, d, e, f, schedule2, 0xB5C0FBCF) \
-    ROUND(f, g, h, a, b, c, d, e, schedule3, 0xE9B5DBA5) \
-    ROUND(e, f, g, h, a, b, c, d, schedule4, 0x3956C25B) \
-    ROUND(d, e, f, g, h, a, b, c, schedule5, 0x59F111F1) \
-    ROUND(c, d, e, f, g, h, a, b, schedule6, 0x923F82A4) \
-    ROUND(b, c, d, e, f, g, h, a, schedule7, 0xAB1C5ED5) \
-    ROUND(a, b, c, d, e, f, g, h, schedule8, 0xD807AA98) \
-    ROUND(h, a, b, c, d, e, f, g, schedule9, 0x12835B01) \
-    ROUND(g, h, a, b, c, d, e, f, schedule10, 0x243185BE) \
-    ROUND(f, g, h, a, b, c, d, e, schedule11, 0x550C7DC3) \
-    ROUND(e, f, g, h, a, b, c, d, schedule12, 0x72BE5D74) \
-    ROUND(d, e, f, g, h, a, b, c, schedule13, 0x80DEB1FE) \
-    ROUND(c, d, e, f, g, h, a, b, schedule14, 0x9BDC06A7) \
-    ROUND(b, c, d, e, f, g, h, a, schedule15, 0xC19BF174) \
-    ROUND(a, b, c, d, e, f, g, h, schedule16, 0xE49B69C1) \
-    ROUND(h, a, b, c, d, e, f, g, schedule17, 0xEFBE4786) \
-    ROUND(g, h, a, b, c, d, e, f, schedule18, 0x0FC19DC6) \
-    ROUND(f, g, h, a, b, c, d, e, schedule19, 0x240CA1CC) \
-    ROUND(e, f, g, h, a, b, c, d, schedule20, 0x2DE92C6F) \
-    ROUND(d, e, f, g, h, a, b, c, schedule21, 0x4A7484AA) \
-    ROUND(c, d, e, f, g, h, a, b, schedule22, 0x5CB0A9DC) \
-    ROUND(b, c, d, e, f, g, h, a, schedule23, 0x76F988DA) \
-    ROUND(a, b, c, d, e, f, g, h, schedule24, 0x983E5152) \
-    ROUND(h, a, b, c, d, e, f, g, schedule25, 0xA831C66D) \
-    ROUND(g, h, a, b, c, d, e, f, schedule26, 0xB00327C8) \
-    ROUND(f, g, h, a, b, c, d, e, schedule27, 0xBF597FC7) \
-    ROUND(e, f, g, h, a, b, c, d, schedule28, 0xC6E00BF3) \
-    ROUND(d, e, f, g, h, a, b, c, schedule29, 0xD5A79147) \
-    ROUND(c, d, e, f, g, h, a, b, schedule30, 0x06CA6351) \
-    ROUND(b, c, d, e, f, g, h, a, schedule31, 0x14292967)
-
-#define ALL_ROUND_B1_2() \
-    ROUND(a, b, c, d, e, f, g, h, schedule0, 0x27B70A85) \
-    ROUND(h, a, b, c, d, e, f, g, schedule1, 0x2E1B2138) \
-    ROUND(g, h, a, b, c, d, e, f, schedule2, 0x4D2C6DFC) \
-    ROUND(f, g, h, a, b, c, d, e, schedule3, 0x53380D13) \
-    ROUND(e, f, g, h, a, b, c, d, schedule4, 0x650A7354) \
-    ROUND(d, e, f, g, h, a, b, c, schedule5, 0x766A0ABB) \
-    ROUND(c, d, e, f, g, h, a, b, schedule6, 0x81C2C92E) \
-    ROUND(b, c, d, e, f, g, h, a, schedule7, 0x92722C85) \
-    ROUND(a, b, c, d, e, f, g, h, schedule8, 0xA2BFE8A1) \
-    ROUND(h, a, b, c, d, e, f, g, schedule9, 0xA81A664B) \
-    ROUND(g, h, a, b, c, d, e, f, schedule10, 0xC24B8B70) \
-    ROUND(f, g, h, a, b, c, d, e, schedule11, 0xC76C51A3) \
-    ROUND(e, f, g, h, a, b, c, d, schedule12, 0xD192E819) \
-    ROUND(d, e, f, g, h, a, b, c, schedule13, 0xD6990624) \
-    ROUND(c, d, e, f, g, h, a, b, schedule14, 0xF40E3585) \
-    ROUND(b, c, d, e, f, g, h, a, schedule15, 0x106AA070) \
-    ROUND(a, b, c, d, e, f, g, h, schedule16, 0x19A4C116) \
-    ROUND(h, a, b, c, d, e, f, g, schedule17, 0x1E376C08) \
-    ROUND(g, h, a, b, c, d, e, f, schedule18, 0x2748774C) \
-    ROUND(f, g, h, a, b, c, d, e, schedule19, 0x34B0BCB5) \
-    ROUND(e, f, g, h, a, b, c, d, schedule20, 0x391C0CB3) \
-    ROUND(d, e, f, g, h, a, b, c, schedule21, 0x4ED8AA4A) \
-    ROUND(c, d, e, f, g, h, a, b, schedule22, 0x5B9CCA4F) \
-    ROUND(b, c, d, e, f, g, h, a, schedule23, 0x682E6FF3) \
-    ROUND(a, b, c, d, e, f, g, h, schedule24, 0x748F82EE) \
-    ROUND(h, a, b, c, d, e, f, g, schedule25, 0x78A5636F) \
-    ROUND(g, h, a, b, c, d, e, f, schedule26, 0x84C87814) \
-    ROUND(f, g, h, a, b, c, d, e, schedule27, 0x8CC70208) \
-    ROUND(e, f, g, h, a, b, c, d, schedule28, 0x90BEFFFA) \
-    ROUND(d, e, f, g, h, a, b, c, schedule29, 0xA4506CEB) \
-    ROUND(c, d, e, f, g, h, a, b, schedule30, 0xBEF9A3F7) \
-    ROUND(b, c, d, e, f, g, h, a, schedule31, 0xC67178F2)
-
-// SHA-256 implementation
-__device__ void sha256_hash(const unsigned char* input, size_t input_len, unsigned char* output) {
-    // Initial hash values
-    uint32_t h[8] = {
-        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
-        0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19
-    };
-
-    // Padding the input
-    unsigned char padded[128]; // Enough for one or two blocks
-    size_t padded_len = ((input_len + 8 + 63) / 64) * 64; // Round up to next 64-byte block
-    for (size_t i = 0; i < input_len; i++) padded[i] = input[i];
-    padded[input_len] = 0x80; // Append '1' bit
-    for (size_t i = input_len + 1; i < padded_len - 8; i++) padded[i] = 0;
-    uint64_t bit_len = input_len * 8;
-    for (int i = 0; i < 8; i++) padded[padded_len - 8 + i] = (bit_len >> (56 - i * 8)) & 0xFF;
-
-    // Process each 64-byte block
-    for (size_t offset = 0; offset < padded_len; offset += 64) {
-        uint32_t schedule[64];
-        // Load initial 16 words (big-endian)
-        for (int i = 0; i < 16; i++) {
-            schedule[i] = ((uint32_t)padded[offset + i*4] << 24) |
-                          ((uint32_t)padded[offset + i*4 + 1] << 16) |
-                          ((uint32_t)padded[offset + i*4 + 2] << 8) |
-                          padded[offset + i*4 + 3];
-        }
-        // Extend to 64 words
-        for (int i = 16; i < 64; i++) {
-            uint32_t s0 = LOP3LUT_XOR(ROR7(schedule[i-15]), ROR18(schedule[i-15]), (schedule[i-15] >> 3));
-            uint32_t s1 = LOP3LUT_XOR(ROR17(schedule[i-2]), ROR19(schedule[i-2]), (schedule[i-2] >> 10));
-            schedule[i] = schedule[i-16] + s0 + schedule[i-7] + s1;
-        }
-
-        // Working variables
-        uint32_t a = h[0], b = h[1], c = h[2], d = h[3],
-                 e = h[4], f = h[5], g = h[6], h_var = h[7];
-
-        // 64 rounds
-        for (int i = 0; i < 64; i++) {
-            uint32_t t1 = h_var + LOP3LUT_XOR(ROR6(e), ROR11(e), ROR25(e)) +
-                          LOP3LUT_XORAND(g, e, f) + k[i] + schedule[i];
-            uint32_t t2 = LOP3LUT_XOR(ROR2(a), ROR13(a), ROR22(a)) + LOP3LUT_ANDOR(a, b, c);
-            h_var = g;
-            g = f;
-            f = e;
-            e = d + t1;
-            d = c;
-            c = b;
-            b = a;
-            a = t1 + t2;
-        }
-
-        // Update hash values
-        h[0] += a; h[1] += b; h[2] += c; h[3] += d;
-        h[4] += e; h[5] += f; h[6] += g; h[7] += h_var;
-    }
-
-    // Output the final hash (big-endian)
-    for (int i = 0; i < 8; i++) {
-        output[i*4 + 0] = (h[i] >> 24) & 0xFF;
-        output[i*4 + 1] = (h[i] >> 16) & 0xFF;
-        output[i*4 + 2] = (h[i] >> 8) & 0xFF;
-        output[i*4 + 3] = h[i] & 0xFF;
-    }
-};
-
-// HMAC-SHA256 implementation using SHA-256
-__device__ void hmac_sha256(const unsigned char* key, size_t key_len,
-                            const unsigned char* message, size_t message_len,
-                            unsigned char* output) {
-    unsigned char k_ipad[HMAC_BLOCK_SIZE];
-    unsigned char k_opad[HMAC_BLOCK_SIZE];
-    unsigned char padded_key[HMAC_BLOCK_SIZE];
-    unsigned char temp[SHA256_HASH_LEN];
-
-    // Handle key padding
-    if (key_len > HMAC_BLOCK_SIZE) {
-        sha256_hash(key, key_len, padded_key);
-        for (int i = SHA256_HASH_LEN; i < HMAC_BLOCK_SIZE; i++) {
-            padded_key[i] = 0;
-        }
-    } else {
-        memcpy(padded_key, key, key_len);
-        for (int i = key_len; i < HMAC_BLOCK_SIZE; i++) {
-            padded_key[i] = 0;
-        }
-    }
-
-    // Prepare ipad and opad
-    for (int i = 0; i < HMAC_BLOCK_SIZE; i++) {
-        k_ipad[i] = padded_key[i] ^ 0x36;
-        k_opad[i] = padded_key[i] ^ 0x5C;
-    }
-
-    // Inner hash
-    unsigned char* inner_input = (unsigned char*)malloc(HMAC_BLOCK_SIZE + message_len);
-    memcpy(inner_input, k_ipad, HMAC_BLOCK_SIZE);
-    memcpy(inner_input + HMAC_BLOCK_SIZE, message, message_len);
-    sha256_hash(inner_input, HMAC_BLOCK_SIZE + message_len, temp);
-
-    // Outer hash
-    unsigned char outer_input[HMAC_BLOCK_SIZE + SHA256_HASH_LEN];
-    memcpy(outer_input, k_opad, HMAC_BLOCK_SIZE);
-    memcpy(outer_input + HMAC_BLOCK_SIZE, temp, SHA256_HASH_LEN);
-    sha256_hash(outer_input, HMAC_BLOCK_SIZE + SHA256_HASH_LEN, output);
-};
-
-// PBKDF2-HMAC-SHA256 implementation
-__device__ void recovery_password_to_key(const unsigned char* password, unsigned char* key) {
-    unsigned char digits[48];
-    int j = 0;
-    // Extract digits, ignoring hyphens
-    for (int i = 0; i < 110 && j < 48; i += 2) {
-        if (password[i] >= '0' && password[i] <= '9') {
-            digits[j++] = password[i] - '0';
-        }
-    }
-
-    // Initial SHA-256 of digits
-    unsigned char intermediate[32];
-    sha256_hash(digits, 48, intermediate);
-
-    // Process each block
-    for (int i = 0; i < 8; i++) {
-        uint16_t block = 0;
-        for (int j = 0; j < 6; j++) {
-            block = block * 10 + digits[i * 6 + j];
-        }
-        block /= 11; // Convert to 16-bit value
-
-        unsigned char temp[34]; // 32 bytes hash + 2 bytes block
-        memcpy(temp, intermediate, 32);
-        temp[32] = (block >> 8) & 0xFF;
-        temp[33] = block & 0xFF;
-
-        unsigned char temp_hash[32];
-        sha256_hash(temp, 34, temp_hash);
-        sha256_hash(temp_hash, 32, intermediate);
-    }
-    memcpy(key, intermediate, 32);
-};
-
-// --- Helper Functions ---
-
-// Standard AES S-box for key expansion
-__device__ __constant__ unsigned char SBOX[256] = {
-    0x63, 0x7C, 0x77, 0x7B, 0xF2, 0x6B, 0x6F, 0xC5, 0x30, 0x01, 0x67, 0x2B, 0xFE, 0xD7, 0xAB, 0x76,
-    0xCA, 0x82, 0xC9, 0x7D, 0xFA, 0x59, 0x47, 0xF0, 0xAD, 0xD4, 0xA2, 0xAF, 0x9C, 0xA4, 0x72, 0xC0,
-    0xB7, 0xFD, 0x93, 0x26, 0x36, 0x3F, 0xF7, 0xCC, 0x34, 0xA5, 0xE5, 0xF1, 0x71, 0xD8, 0x31, 0x15,
-    0x04, 0xC7, 0x23, 0xC3, 0x18, 0x96, 0x05, 0x9A, 0x07, 0x12, 0x80, 0xE2, 0xEB, 0x27, 0xB2, 0x75,
-    0x09, 0x83, 0x2C, 0x1A, 0x1B, 0x6E, 0x5A, 0xA0, 0x52, 0x3B, 0xD6, 0xB3, 0x29, 0xE3, 0x2F, 0x84,
-    0x53, 0xD1, 0x00, 0xED, 0x20, 0xFC, 0xB1, 0x5B, 0x6A, 0xCB, 0xBE, 0x39, 0x4A, 0x4C, 0x58, 0xCF,
-    0xD0, 0xEF, 0xAA, 0xFB, 0x43, 0x4D, 0x33, 0x85, 0x45, 0xF9, 0x02, 0x7F, 0x50, 0x3C, 0x9F, 0xA8,
-    0x51, 0xA3, 0x40, 0x8F, 0x92, 0x9D, 0x38, 0xF5, 0xBC, 0xB6, 0xDA, 0x21, 0x10, 0xFF, 0xF3, 0xD2,
-    0xCD, 0x0C, 0x13, 0xEC, 0x5F, 0x97, 0x44, 0x17, 0xC4, 0xA7, 0x7E, 0x3D, 0x64, 0x5D, 0x19, 0x73,
-    0x60, 0x81, 0x4F, 0xDC, 0x22, 0x2A, 0x90, 0x88, 0x46, 0xEE, 0xB8, 0x14, 0xDE, 0x5E, 0x0B, 0xDB,
-    0xE0, 0x32, 0x3A, 0x0A, 0x49, 0x06, 0x24, 0x5C, 0xC2, 0xD3, 0xAC, 0x62, 0x91, 0x95, 0xE4, 0x79,
-    0xE7, 0xC8, 0x37, 0x6D, 0x8D, 0xD5, 0x4E, 0xA9, 0x6C, 0x56, 0xF4, 0xEA, 0x65, 0x7A, 0xAE, 0x08,
-    0xBA, 0x78, 0x25, 0x2E, 0x1C, 0xA6, 0xB4, 0xC6, 0xE8, 0xDD, 0x74, 0x1F, 0x4B, 0xBD, 0x8B, 0x8A,
-    0x70, 0x3E, 0xB5, 0x66, 0x48, 0x03, 0xF6, 0x0E, 0x61, 0x35, 0x57, 0xB9, 0x86, 0xC1, 0x1D, 0x9E,
-    0xE1, 0xF8, 0x98, 0x11, 0x69, 0xD9, 0x8E, 0x94, 0x9B, 0x1E, 0x87, 0xE9, 0xCE, 0x55, 0x28, 0xDF,
-    0x8C, 0xA1, 0x89, 0x0D, 0xBF, 0xE6, 0x42, 0x68, 0x41, 0x99, 0x2D, 0x0F, 0xB0, 0x54, 0xBB, 0x16
-};
-
-__device__ __constant__ unsigned char SBOXI[256] = {
-   0x52, 0x09, 0x6A, 0xD5, 0x30, 0x36, 0xA5, 0x38, 0xBF, 0x40, 0xA3, 0x9E, 0x81, 0xF3, 0xD7, 0xFB,
-   0x7C, 0xE3, 0x39, 0x82, 0x9B, 0x2F, 0xFF, 0x87, 0x34, 0x8E, 0x43, 0x44, 0xC4, 0xDE, 0xE9, 0xCB,
-   0x54, 0x7B, 0x94, 0x32, 0xA6, 0xC2, 0x23, 0x3D, 0xEE, 0x4C, 0x95, 0x0B, 0x42, 0xFA, 0xC3, 0x4E,
-   0x08, 0x2E, 0xA1, 0x66, 0x28, 0xD9, 0x24, 0xB2, 0x76, 0x5B, 0xA2, 0x49, 0x6D, 0x8B, 0xD1, 0x25,
-   0x72, 0xF8, 0xF6, 0x64, 0x86, 0x68, 0x98, 0x16, 0xD4, 0xA4, 0x5C, 0xCC, 0x5D, 0x65, 0xB6, 0x92,
-   0x6C, 0x70, 0x48, 0x50, 0xFD, 0xED, 0xB9, 0xDA, 0x5E, 0x15, 0x46, 0x57, 0xA7, 0x8D, 0x9D, 0x84,
-   0x90, 0xD8, 0xAB, 0x00, 0x8C, 0xBC, 0xD3, 0x0A, 0xF7, 0xE4, 0x58, 0x05, 0xB8, 0xB3, 0x45, 0x06,
-   0xD0, 0x2C, 0x1E, 0x8F, 0xCA, 0x3F, 0x0F, 0x02, 0xC1, 0xAF, 0xBD, 0x03, 0x01, 0x13, 0x8A, 0x6B,
-   0x3A, 0x91, 0x11, 0x41, 0x4F, 0x67, 0xDC, 0xEA, 0x97, 0xF2, 0xCF, 0xCE, 0xF0, 0xB4, 0xE6, 0x73,
-   0x96, 0xAC, 0x74, 0x22, 0xE7, 0xAD, 0x35, 0x85, 0xE2, 0xF9, 0x37, 0xE8, 0x1C, 0x75, 0xDF, 0x6E,
-   0x47, 0xF1, 0x1A, 0x71, 0x1D, 0x29, 0xC5, 0x89, 0x6F, 0xB7, 0x62, 0x0E, 0xAA, 0x18, 0xBE, 0x1B,
-   0xFC, 0x56, 0x3E, 0x4B, 0xC6, 0xD2, 0x79, 0x20, 0x9A, 0xDB, 0xC0, 0xFE, 0x78, 0xCD, 0x5A, 0xF4,
-   0x1F, 0xDD, 0xA8, 0x33, 0x88, 0x07, 0xC7, 0x31, 0xB1, 0x12, 0x10, 0x59, 0x27, 0x80, 0xEC, 0x5F,
-   0x60, 0x51, 0x7F, 0xA9, 0x19, 0xB5, 0x4A, 0x0D, 0x2D, 0xE5, 0x7A, 0x9F, 0x93, 0xC9, 0x9C, 0xEF,
-   0xA0, 0xE0, 0x3B, 0x4D, 0xAE, 0x2A, 0xF5, 0xB0, 0xC8, 0xEB, 0xBB, 0x3C, 0x83, 0x53, 0x99, 0x61,
-   0x17, 0x2B, 0x04, 0x7E, 0xBA, 0x77, 0xD6, 0x26, 0xE1, 0x69, 0x14, 0x63, 0x55, 0x21, 0x0C, 0x7D
-};
-
-// AES RCON
-__device__ __constant__ unsigned int RCON[10] = {
-    0x01000000, 0x02000000, 0x04000000, 0x08000000, 0x10000000,
-    0x20000000, 0x40000000, 0x80000000, 0x1B000000, 0x36000000 /* for 128-bit blocks, Rijndael never uses more than 10 rcon values */
-};
-
-// Key expansion for AES-256
-__device__ void aes256_key_expansion(const unsigned char* key, unsigned char* round_keys) {
-    memcpy(round_keys, key, 32); // Copy the 32-byte key
-
-    unsigned int* w = (unsigned int*)round_keys;
-    const int Nk = 8; // 8 words (32 bytes) for AES-256 key
-    const int Nr = 14; // 14 rounds for AES-256
-    int i = Nk;
-
-    while (i < 4 * (Nr + 1)) {
-        unsigned int temp = w[i - 1];
-        if (i % Nk == 0) {
-            // Rotate word
-            unsigned int rotated = (temp << 8) | (temp >> 24);
-            // Apply S-box to each byte
-            ((unsigned char*)&rotated)[0] = SBOX[((unsigned char*)&rotated)[0]];
-            ((unsigned char*)&rotated)[1] = SBOX[((unsigned char*)&rotated)[1]];
-            ((unsigned char*)&rotated)[2] = SBOX[((unsigned char*)&rotated)[2]];
-            ((unsigned char*)&rotated)[3] = SBOX[((unsigned char*)&rotated)[3]];
-            // XOR with RCON
-            temp = rotated ^ RCON[(i / Nk) - 1];
-        } else if (i % Nk == 4) {
-            // Apply S-box to each byte
-            ((unsigned char*)&temp)[0] = SBOX[((unsigned char*)&temp)[0]];
-            ((unsigned char*)&temp)[1] = SBOX[((unsigned char*)&temp)[1]];
-            ((unsigned char*)&temp)[2] = SBOX[((unsigned char*)&temp)[2]];
-            ((unsigned char*)&temp)[3] = SBOX[((unsigned char*)&temp)[3]];
-        }
-        w[i] = w[i - Nk] ^ temp;
-        i++;
-    }
-};
-
-// Inverse ShiftRows
-__device__ void inv_shift_rows(unsigned char* state) {
-    unsigned char temp;
-    // Row 1: shift right by 1
-    temp = state[13];
-    state[13] = state[9];
-    state[9] = state[5];
-    state[5] = state[1];
-    state[1] = temp;
-    // Row 2: shift right by 2
-    temp = state[2];
-    state[2] = state[10];
-    state[10] = temp;
-    temp = state[6];
-    state[6] = state[14];
-    state[14] = temp;
-    // Row 3: shift right by 3
-    temp = state[3];
-    state[3] = state[7];
-    state[7] = state[11];
-    state[11] = state[15];
-    state[15] = temp;
-};
-
-// Inverse SubBytes using SBOXI
-__device__ void inv_sub_bytes(unsigned char* state) {
-    for (int i = 0; i < 16; i++) {
-        state[i] = SBOXI[state[i]];
-    }
-};
-
-// USi tables
-__device__ __constant__ unsigned int USi0[256] = {
-	0x00000000U, 0x0E090D0BU, 0x1C121A16U, 0x121B171DU, 0x3824342CU, 0x362D3927U, 0x24362E3AU, 0x2A3F2331U, 
-    0x70486858U, 0x7E416553U, 0x6C5A724EU, 0x62537F45U, 0x486C5C74U, 0x4665517FU, 0x547E4662U, 0x5A774B69U, 
-    0xE090D0B0U, 0xEE99DDBBU, 0xFC82CAA6U, 0xF28BC7ADU, 0xD8B4E49CU, 0xD6BDE997U, 0xC4A6FE8AU, 0xCAAFF381U, 
-    0x90D8B8E8U, 0x9ED1B5E3U, 0x8CCAA2FEU, 0x82C3AFF5U, 0xA8FC8CC4U, 0xA6F581CFU, 0xB4EE96D2U, 0xBAE79BD9U, 
-    0xDB3BBB7BU, 0xD532B670U, 0xC729A16DU, 0xC920AC66U, 0xE31F8F57U, 0xED16825CU, 0xFF0D9541U, 0xF104984AU, 
-    0xAB73D323U, 0xA57ADE28U, 0xB761C935U, 0xB968C43EU, 0x9357E70FU, 0x9D5EEA04U, 0x8F45FD19U, 0x814CF012U, 
-    0x3BAB6BCBU, 0x35A266C0U, 0x27B971DDU, 0x29B07CD6U, 0x038F5FE7U, 0x0D8652ECU, 0x1F9D45F1U, 0x119448FAU, 
-    0x4BE30393U, 0x45EA0E98U, 0x57F11985U, 0x59F8148EU, 0x73C737BFU, 0x7DCE3AB4U, 0x6FD52DA9U, 0x61DC20A2U, 
-    0xAD766DF6U, 0xA37F60FDU, 0xB16477E0U, 0xBF6D7AEBU, 0x955259DAU, 0x9B5B54D1U, 0x894043CCU, 0x87494EC7U, 
-    0xDD3E05AEU, 0xD33708A5U, 0xC12C1FB8U, 0xCF2512B3U, 0xE51A3182U, 0xEB133C89U, 0xF9082B94U, 0xF701269FU, 
-    0x4DE6BD46U, 0x43EFB04DU, 0x51F4A750U, 0x5FFDAA5BU, 0x75C2896AU, 0x7BCB8461U, 0x69D0937CU, 0x67D99E77U, 
-    0x3DAED51EU, 0x33A7D815U, 0x21BCCF08U, 0x2FB5C203U, 0x058AE132U, 0x0B83EC39U, 0x1998FB24U, 0x1791F62FU, 
-    0x764DD68DU, 0x7844DB86U, 0x6A5FCC9BU, 0x6456C190U, 0x4E69E2A1U, 0x4060EFAAU, 0x527BF8B7U, 0x5C72F5BCU, 
-    0x0605BED5U, 0x080CB3DEU, 0x1A17A4C3U, 0x141EA9C8U, 0x3E218AF9U, 0x302887F2U, 0x223390EFU, 0x2C3A9DE4U, 
-    0x96DD063DU, 0x98D40B36U, 0x8ACF1C2BU, 0x84C61120U, 0xAEF93211U, 0xA0F03F1AU, 0xB2EB2807U, 0xBCE2250CU, 
-    0xE6956E65U, 0xE89C636EU, 0xFA877473U, 0xF48E7978U, 0xDEB15A49U, 0xD0B85742U, 0xC2A3405FU, 0xCCAA4D54U, 
-    0x41ECDAF7U, 0x4FE5D7FCU, 0x5DFEC0E1U, 0x53F7CDEAU, 0x79C8EEDBU, 0x77C1E3D0U, 0x65DAF4CDU, 0x6BD3F9C6U, 
-    0x31A4B2AFU, 0x3FADBFA4U, 0x2DB6A8B9U, 0x23BFA5B2U, 0x09808683U, 0x07898B88U, 0x15929C95U, 0x1B9B919EU, 
-    0xA17C0A47U, 0xAF75074CU, 0xBD6E1051U, 0xB3671D5AU, 0x99583E6BU, 0x97513360U, 0x854A247DU, 0x8B432976U, 
-    0xD134621FU, 0xDF3D6F14U, 0xCD267809U, 0xC32F7502U, 0xE9105633U, 0xE7195B38U, 0xF5024C25U, 0xFB0B412EU, 
-    0x9AD7618CU, 0x94DE6C87U, 0x86C57B9AU, 0x88CC7691U, 0xA2F355A0U, 0xACFA58ABU, 0xBEE14FB6U, 0xB0E842BDU, 
-    0xEA9F09D4U, 0xE49604DFU, 0xF68D13C2U, 0xF8841EC9U, 0xD2BB3DF8U, 0xDCB230F3U, 0xCEA927EEU, 0xC0A02AE5U, 
-    0x7A47B13CU, 0x744EBC37U, 0x6655AB2AU, 0x685CA621U, 0x42638510U, 0x4C6A881BU, 0x5E719F06U, 0x5078920DU, 
-    0x0A0FD964U, 0x0406D46FU, 0x161DC372U, 0x1814CE79U, 0x322BED48U, 0x3C22E043U, 0x2E39F75EU, 0x2030FA55U, 
-    0xEC9AB701U, 0xE293BA0AU, 0xF088AD17U, 0xFE81A01CU, 0xD4BE832DU, 0xDAB78E26U, 0xC8AC993BU, 0xC6A59430U, 
-    0x9CD2DF59U, 0x92DBD252U, 0x80C0C54FU, 0x8EC9C844U, 0xA4F6EB75U, 0xAAFFE67EU, 0xB8E4F163U, 0xB6EDFC68U, 
-    0x0C0A67B1U, 0x02036ABAU, 0x10187DA7U, 0x1E1170ACU, 0x342E539DU, 0x3A275E96U, 0x283C498BU, 0x26354480U, 
-    0x7C420FE9U, 0x724B02E2U, 0x605015FFU, 0x6E5918F4U, 0x44663BC5U, 0x4A6F36CEU, 0x587421D3U, 0x567D2CD8U, 
-    0x37A10C7AU, 0x39A80171U, 0x2BB3166CU, 0x25BA1B67U, 0x0F853856U, 0x018C355DU, 0x13972240U, 0x1D9E2F4BU, 
-    0x47E96422U, 0x49E06929U, 0x5BFB7E34U, 0x55F2733FU, 0x7FCD500EU, 0x71C45D05U, 0x63DF4A18U, 0x6DD64713U, 
-    0xD731DCCAU, 0xD938D1C1U, 0xCB23C6DCU, 0xC52ACBD7U, 0xEF15E8E6U, 0xE11CE5EDU, 0xF307F2F0U, 0xFD0EFFFBU, 
-    0xA779B492U, 0xA970B999U, 0xBB6BAE84U, 0xB562A38FU, 0x9F5D80BEU, 0x91548DB5U, 0x834F9AA8U, 0x8D4697A3U
-};
-
-__device__ __constant__ unsigned int USi1[256] = {
-	0x5051F4A7U, 0x537E4165U, 0xC31A17A4U, 0x963A275EU, 0xCB3BAB6BU, 0xF11F9D45U, 0xABACFA58U, 0x934BE303U, 
-    0x552030FAU, 0xF6AD766DU, 0x9188CC76U, 0x25F5024CU, 0xFC4FE5D7U, 0xD7C52ACBU, 0x80263544U, 0x8FB562A3U, 
-    0x49DEB15AU, 0x6725BA1BU, 0x9845EA0EU, 0xE15DFEC0U, 0x02C32F75U, 0x12814CF0U, 0xA38D4697U, 0xC66BD3F9U, 
-    0xE7038F5FU, 0x9515929CU, 0xEBBF6D7AU, 0xDA955259U, 0x2DD4BE83U, 0xD3587421U, 0x2949E069U, 0x448EC9C8U, 
-    0x6A75C289U, 0x78F48E79U, 0x6B99583EU, 0xDD27B971U, 0xB6BEE14FU, 0x17F088ADU, 0x66C920ACU, 0xB47DCE3AU, 
-    0x1863DF4AU, 0x82E51A31U, 0x60975133U, 0x4562537FU, 0xE0B16477U, 0x84BB6BAEU, 0x1CFE81A0U, 0x94F9082BU, 
-    0x58704868U, 0x198F45FDU, 0x8794DE6CU, 0xB7527BF8U, 0x23AB73D3U, 0xE2724B02U, 0x57E31F8FU, 0x2A6655ABU, 
-    0x07B2EB28U, 0x032FB5C2U, 0x9A86C57BU, 0xA5D33708U, 0xF2302887U, 0xB223BFA5U, 0xBA02036AU, 0x5CED1682U, 
-    0x2B8ACF1CU, 0x92A779B4U, 0xF0F307F2U, 0xA14E69E2U, 0xCD65DAF4U, 0xD50605BEU, 0x1FD13462U, 0x8AC4A6FEU, 
-    0x9D342E53U, 0xA0A2F355U, 0x32058AE1U, 0x75A4F6EBU, 0x390B83ECU, 0xAA4060EFU, 0x065E719FU, 0x51BD6E10U, 
-    0xF93E218AU, 0x3D96DD06U, 0xAEDD3E05U, 0x464DE6BDU, 0xB591548DU, 0x0571C45DU, 0x6F0406D4U, 0xFF605015U, 
-    0x241998FBU, 0x97D6BDE9U, 0xCC894043U, 0x7767D99EU, 0xBDB0E842U, 0x8807898BU, 0x38E7195BU, 0xDB79C8EEU, 
-    0x47A17C0AU, 0xE97C420FU, 0xC9F8841EU, 0x00000000U, 0x83098086U, 0x48322BEDU, 0xAC1E1170U, 0x4E6C5A72U, 
-    0xFBFD0EFFU, 0x560F8538U, 0x1E3DAED5U, 0x27362D39U, 0x640A0FD9U, 0x21685CA6U, 0xD19B5B54U, 0x3A24362EU, 
-    0xB10C0A67U, 0x0F9357E7U, 0xD2B4EE96U, 0x9E1B9B91U, 0x4F80C0C5U, 0xA261DC20U, 0x695A774BU, 0x161C121AU, 
-    0x0AE293BAU, 0xE5C0A02AU, 0x433C22E0U, 0x1D121B17U, 0x0B0E090DU, 0xADF28BC7U, 0xB92DB6A8U, 0xC8141EA9U, 
-    0x8557F119U, 0x4CAF7507U, 0xBBEE99DDU, 0xFDA37F60U, 0x9FF70126U, 0xBC5C72F5U, 0xC544663BU, 0x345BFB7EU, 
-    0x768B4329U, 0xDCCB23C6U, 0x68B6EDFCU, 0x63B8E4F1U, 0xCAD731DCU, 0x10426385U, 0x40139722U, 0x2084C611U, 
-    0x7D854A24U, 0xF8D2BB3DU, 0x11AEF932U, 0x6DC729A1U, 0x4B1D9E2FU, 0xF3DCB230U, 0xEC0D8652U, 0xD077C1E3U, 
-    0x6C2BB316U, 0x99A970B9U, 0xFA119448U, 0x2247E964U, 0xC4A8FC8CU, 0x1AA0F03FU, 0xD8567D2CU, 0xEF223390U, 
-    0xC787494EU, 0xC1D938D1U, 0xFE8CCAA2U, 0x3698D40BU, 0xCFA6F581U, 0x28A57ADEU, 0x26DAB78EU, 0xA43FADBFU, 
-    0xE42C3A9DU, 0x0D507892U, 0x9B6A5FCCU, 0x62547E46U, 0xC2F68D13U, 0xE890D8B8U, 0x5E2E39F7U, 0xF582C3AFU, 
-    0xBE9F5D80U, 0x7C69D093U, 0xA96FD52DU, 0xB3CF2512U, 0x3BC8AC99U, 0xA710187DU, 0x6EE89C63U, 0x7BDB3BBBU, 
-    0x09CD2678U, 0xF46E5918U, 0x01EC9AB7U, 0xA8834F9AU, 0x65E6956EU, 0x7EAAFFE6U, 0x0821BCCFU, 0xE6EF15E8U, 
-    0xD9BAE79BU, 0xCE4A6F36U, 0xD4EA9F09U, 0xD629B07CU, 0xAF31A4B2U, 0x312A3F23U, 0x30C6A594U, 0xC035A266U, 
-    0x37744EBCU, 0xA6FC82CAU, 0xB0E090D0U, 0x1533A7D8U, 0x4AF10498U, 0xF741ECDAU, 0x0E7FCD50U, 0x2F1791F6U, 
-    0x8D764DD6U, 0x4D43EFB0U, 0x54CCAA4DU, 0xDFE49604U, 0xE39ED1B5U, 0x1B4C6A88U, 0xB8C12C1FU, 0x7F466551U, 
-    0x049D5EEAU, 0x5D018C35U, 0x73FA8774U, 0x2EFB0B41U, 0x5AB3671DU, 0x5292DBD2U, 0x33E91056U, 0x136DD647U, 
-    0x8C9AD761U, 0x7A37A10CU, 0x8E59F814U, 0x89EB133CU, 0xEECEA927U, 0x35B761C9U, 0xEDE11CE5U, 0x3C7A47B1U, 
-    0x599CD2DFU, 0x3F55F273U, 0x791814CEU, 0xBF73C737U, 0xEA53F7CDU, 0x5B5FFDAAU, 0x14DF3D6FU, 0x867844DBU, 
-    0x81CAAFF3U, 0x3EB968C4U, 0x2C382434U, 0x5FC2A340U, 0x72161DC3U, 0x0CBCE225U, 0x8B283C49U, 0x41FF0D95U, 
-    0x7139A801U, 0xDE080CB3U, 0x9CD8B4E4U, 0x906456C1U, 0x617BCB84U, 0x70D532B6U, 0x74486C5CU, 0x42D0B857U
-};
-
-__device__ __constant__ unsigned int USi2[256] = {
-	0x00000000U, 0x0D0B0E09U, 0x1A161C12U, 0x171D121BU, 0x342C3824U, 0x3927362DU, 0x2E3A2436U, 0x23312A3FU, 
-    0x68587048U, 0x65537E41U, 0x724E6C5AU, 0x7F456253U, 0x5C74486CU, 0x517F4665U, 0x4662547EU, 0x4B695A77U, 
-    0xD0B0E090U, 0xDDBBEE99U, 0xCAA6FC82U, 0xC7ADF28BU, 0xE49CD8B4U, 0xE997D6BDU, 0xFE8AC4A6U, 0xF381CAAFU, 
-    0xB8E890D8U, 0xB5E39ED1U, 0xA2FE8CCAU, 0xAFF582C3U, 0x8CC4A8FCU, 0x81CFA6F5U, 0x96D2B4EEU, 0x9BD9BAE7U, 
-    0xBB7BDB3BU, 0xB670D532U, 0xA16DC729U, 0xAC66C920U, 0x8F57E31FU, 0x825CED16U, 0x9541FF0DU, 0x984AF104U, 
-    0xD323AB73U, 0xDE28A57AU, 0xC935B761U, 0xC43EB968U, 0xE70F9357U, 0xEA049D5EU, 0xFD198F45U, 0xF012814CU, 
-    0x6BCB3BABU, 0x66C035A2U, 0x71DD27B9U, 0x7CD629B0U, 0x5FE7038FU, 0x52EC0D86U, 0x45F11F9DU, 0x48FA1194U, 
-    0x03934BE3U, 0x0E9845EAU, 0x198557F1U, 0x148E59F8U, 0x37BF73C7U, 0x3AB47DCEU, 0x2DA96FD5U, 0x20A261DCU, 
-    0x6DF6AD76U, 0x60FDA37FU, 0x77E0B164U, 0x7AEBBF6DU, 0x59DA9552U, 0x54D19B5BU, 0x43CC8940U, 0x4EC78749U, 
-    0x05AEDD3EU, 0x08A5D337U, 0x1FB8C12CU, 0x12B3CF25U, 0x3182E51AU, 0x3C89EB13U, 0x2B94F908U, 0x269FF701U, 
-    0xBD464DE6U, 0xB04D43EFU, 0xA75051F4U, 0xAA5B5FFDU, 0x896A75C2U, 0x84617BCBU, 0x937C69D0U, 0x9E7767D9U, 
-    0xD51E3DAEU, 0xD81533A7U, 0xCF0821BCU, 0xC2032FB5U, 0xE132058AU, 0xEC390B83U, 0xFB241998U, 0xF62F1791U, 
-    0xD68D764DU, 0xDB867844U, 0xCC9B6A5FU, 0xC1906456U, 0xE2A14E69U, 0xEFAA4060U, 0xF8B7527BU, 0xF5BC5C72U, 
-    0xBED50605U, 0xB3DE080CU, 0xA4C31A17U, 0xA9C8141EU, 0x8AF93E21U, 0x87F23028U, 0x90EF2233U, 0x9DE42C3AU, 
-    0x063D96DDU, 0x0B3698D4U, 0x1C2B8ACFU, 0x112084C6U, 0x3211AEF9U, 0x3F1AA0F0U, 0x2807B2EBU, 0x250CBCE2U, 
-    0x6E65E695U, 0x636EE89CU, 0x7473FA87U, 0x7978F48EU, 0x5A49DEB1U, 0x5742D0B8U, 0x405FC2A3U, 0x4D54CCAAU, 
-    0xDAF741ECU, 0xD7FC4FE5U, 0xC0E15DFEU, 0xCDEA53F7U, 0xEEDB79C8U, 0xE3D077C1U, 0xF4CD65DAU, 0xF9C66BD3U, 
-    0xB2AF31A4U, 0xBFA43FADU, 0xA8B92DB6U, 0xA5B223BFU, 0x86830980U, 0x8B880789U, 0x9C951592U, 0x919E1B9BU, 
-    0x0A47A17CU, 0x074CAF75U, 0x1051BD6EU, 0x1D5AB367U, 0x3E6B9958U, 0x33609751U, 0x247D854AU, 0x29768B43U, 
-    0x621FD134U, 0x6F14DF3DU, 0x7809CD26U, 0x7502C32FU, 0x5633E910U, 0x5B38E719U, 0x4C25F502U, 0x412EFB0BU, 
-    0x618C9AD7U, 0x6C8794DEU, 0x7B9A86C5U, 0x769188CCU, 0x55A0A2F3U, 0x58ABACFAU, 0x4FB6BEE1U, 0x42BDB0E8U, 
-    0x09D4EA9FU, 0x04DFE496U, 0x13C2F68DU, 0x1EC9F884U, 0x3DF8D2BBU, 0x30F3DCB2U, 0x27EECEA9U, 0x2AE5C0A0U, 
-    0xB13C7A47U, 0xBC37744EU, 0xAB2A6655U, 0xA621685CU, 0x85104263U, 0x881B4C6AU, 0x9F065E71U, 0x920D5078U, 
-    0xD9640A0FU, 0xD46F0406U, 0xC372161DU, 0xCE791814U, 0xED48322BU, 0xE0433C22U, 0xF75E2E39U, 0xFA552030U, 
-    0xB701EC9AU, 0xBA0AE293U, 0xAD17F088U, 0xA01CFE81U, 0x832DD4BEU, 0x8E26DAB7U, 0x993BC8ACU, 0x9430C6A5U, 
-    0xDF599CD2U, 0xD25292DBU, 0xC54F80C0U, 0xC8448EC9U, 0xEB75A4F6U, 0xE67EAAFFU, 0xF163B8E4U, 0xFC68B6EDU, 
-    0x67B10C0AU, 0x6ABA0203U, 0x7DA71018U, 0x70AC1E11U, 0x539D342EU, 0x5E963A27U, 0x498B283CU, 0x44802635U, 
-    0x0FE97C42U, 0x02E2724BU, 0x15FF6050U, 0x18F46E59U, 0x3BC54466U, 0x36CE4A6FU, 0x21D35874U, 0x2CD8567DU, 
-    0x0C7A37A1U, 0x017139A8U, 0x166C2BB3U, 0x1B6725BAU, 0x38560F85U, 0x355D018CU, 0x22401397U, 0x2F4B1D9EU, 
-    0x642247E9U, 0x692949E0U, 0x7E345BFBU, 0x733F55F2U, 0x500E7FCDU, 0x5D0571C4U, 0x4A1863DFU, 0x47136DD6U, 
-    0xDCCAD731U, 0xD1C1D938U, 0xC6DCCB23U, 0xCBD7C52AU, 0xE8E6EF15U, 0xE5EDE11CU, 0xF2F0F307U, 0xFFFBFD0EU, 
-    0xB492A779U, 0xB999A970U, 0xAE84BB6BU, 0xA38FB562U, 0x80BE9F5DU, 0x8DB59154U, 0x9AA8834FU, 0x97A38D46U
-};
-
-__device__ __constant__ unsigned int USi3[256] = {
-	0x00000000U, 0x090D0B0EU, 0x121A161CU, 0x1B171D12U, 0x24342C38U, 0x2D392736U, 0x362E3A24U, 0x3F23312AU, 
-    0x48685870U, 0x4165537EU, 0x5A724E6CU, 0x537F4562U, 0x6C5C7448U, 0x65517F46U, 0x7E466254U, 0x774B695AU, 
-    0x90D0B0E0U, 0x99DDBBEEU, 0x82CAA6FCU, 0x8BC7ADF2U, 0xB4E49CD8U, 0xBDE997D6U, 0xA6FE8AC4U, 0xAFF381CAU, 
-    0xD8B8E890U, 0xD1B5E39EU, 0xCAA2FE8CU, 0xC3AFF582U, 0xFC8CC4A8U, 0xF581CFA6U, 0xEE96D2B4U, 0xE79BD9BAU, 
-    0x3BBB7BDBU, 0x32B670D5U, 0x29A16DC7U, 0x20AC66C9U, 0x1F8F57E3U, 0x16825CEDU, 0x0D9541FFU, 0x04984AF1U, 
-    0x73D323ABU, 0x7ADE28A5U, 0x61C935B7U, 0x68C43EB9U, 0x57E70F93U, 0x5EEA049DU, 0x45FD198FU, 0x4CF01281U, 
-    0xAB6BCB3BU, 0xA266C035U, 0xB971DD27U, 0xB07CD629U, 0x8F5FE703U, 0x8652EC0DU, 0x9D45F11FU, 0x9448FA11U, 
-    0xE303934BU, 0xEA0E9845U, 0xF1198557U, 0xF8148E59U, 0xC737BF73U, 0xCE3AB47DU, 0xD52DA96FU, 0xDC20A261U, 
-    0x766DF6ADU, 0x7F60FDA3U, 0x6477E0B1U, 0x6D7AEBBFU, 0x5259DA95U, 0x5B54D19BU, 0x4043CC89U, 0x494EC787U, 
-    0x3E05AEDDU, 0x3708A5D3U, 0x2C1FB8C1U, 0x2512B3CFU, 0x1A3182E5U, 0x133C89EBU, 0x082B94F9U, 0x01269FF7U, 
-    0xE6BD464DU, 0xEFB04D43U, 0xF4A75051U, 0xFDAA5B5FU, 0xC2896A75U, 0xCB84617BU, 0xD0937C69U, 0xD99E7767U, 
-    0xAED51E3DU, 0xA7D81533U, 0xBCCF0821U, 0xB5C2032FU, 0x8AE13205U, 0x83EC390BU, 0x98FB2419U, 0x91F62F17U, 
-    0x4DD68D76U, 0x44DB8678U, 0x5FCC9B6AU, 0x56C19064U, 0x69E2A14EU, 0x60EFAA40U, 0x7BF8B752U, 0x72F5BC5CU, 
-    0x05BED506U, 0x0CB3DE08U, 0x17A4C31AU, 0x1EA9C814U, 0x218AF93EU, 0x2887F230U, 0x3390EF22U, 0x3A9DE42CU, 
-    0xDD063D96U, 0xD40B3698U, 0xCF1C2B8AU, 0xC6112084U, 0xF93211AEU, 0xF03F1AA0U, 0xEB2807B2U, 0xE2250CBCU, 
-    0x956E65E6U, 0x9C636EE8U, 0x877473FAU, 0x8E7978F4U, 0xB15A49DEU, 0xB85742D0U, 0xA3405FC2U, 0xAA4D54CCU, 
-    0xECDAF741U, 0xE5D7FC4FU, 0xFEC0E15DU, 0xF7CDEA53U, 0xC8EEDB79U, 0xC1E3D077U, 0xDAF4CD65U, 0xD3F9C66BU, 
-    0xA4B2AF31U, 0xADBFA43FU, 0xB6A8B92DU, 0xBFA5B223U, 0x80868309U, 0x898B8807U, 0x929C9515U, 0x9B919E1BU, 
-    0x7C0A47A1U, 0x75074CAFU, 0x6E1051BDU, 0x671D5AB3U, 0x583E6B99U, 0x51336097U, 0x4A247D85U, 0x4329768BU, 
-    0x34621FD1U, 0x3D6F14DFU, 0x267809CDU, 0x2F7502C3U, 0x105633E9U, 0x195B38E7U, 0x024C25F5U, 0x0B412EFBU, 
-    0xD7618C9AU, 0xDE6C8794U, 0xC57B9A86U, 0xCC769188U, 0xF355A0A2U, 0xFA58ABACU, 0xE14FB6BEU, 0xE842BDB0U, 
-    0x9F09D4EAU, 0x9604DFE4U, 0x8D13C2F6U, 0x841EC9F8U, 0xBB3DF8D2U, 0xB230F3DCU, 0xA927EECEU, 0xA02AE5C0U, 
-    0x47B13C7AU, 0x4EBC3774U, 0x55AB2A66U, 0x5CA62168U, 0x63851042U, 0x6A881B4CU, 0x719F065EU, 0x78920D50U, 
-    0x0FD9640AU, 0x06D46F04U, 0x1DC37216U, 0x14CE7918U, 0x2BED4832U, 0x22E0433CU, 0x39F75E2EU, 0x30FA5520U, 
-    0x9AB701ECU, 0x93BA0AE2U, 0x88AD17F0U, 0x81A01CFEU, 0xBE832DD4U, 0xB78E26DAU, 0xAC993BC8U, 0xA59430C6U, 
-    0xD2DF599CU, 0xDBD25292U, 0xC0C54F80U, 0xC9C8448EU, 0xF6EB75A4U, 0xFFE67EAAU, 0xE4F163B8U, 0xEDFC68B6U, 
-    0x0A67B10CU, 0x036ABA02U, 0x187DA710U, 0x1170AC1EU, 0x2E539D34U, 0x275E963AU, 0x3C498B28U, 0x35448026U, 
-    0x420FE97CU, 0x4B02E272U, 0x5015FF60U, 0x5918F46EU, 0x663BC544U, 0x6F36CE4AU, 0x7421D358U, 0x7D2CD856U, 
-    0xA10C7A37U, 0xA8017139U, 0xB3166C2BU, 0xBA1B6725U, 0x8538560FU, 0x8C355D01U, 0x97224013U, 0x9E2F4B1DU, 
-    0xE9642247U, 0xE0692949U, 0xFB7E345BU, 0xF2733F55U, 0xCD500E7FU, 0xC45D0571U, 0xDF4A1863U, 0xD647136DU, 
-    0x31DCCAD7U, 0x38D1C1D9U, 0x23C6DCCBU, 0x2ACBD7C5U, 0x15E8E6EFU, 0x1CE5EDE1U, 0x07F2F0F3U, 0x0EFFFBFDU, 
-    0x79B492A7U, 0x70B999A9U, 0x6BAE84BBU, 0x62A38FB5U, 0x5D80BE9FU, 0x548DB591U, 0x4F9AA883U, 0x4697A38DU
-};
-
-// Inverse MixColumns using USi tables
-__device__ void inv_mix_columns(unsigned char* state) {
-    unsigned char new_state[16];
-    for (int j = 0; j < 4; j++) { // For each column
-        unsigned int temp = USi0[state[4*j]] ^ USi1[state[4*j+1]] ^ USi2[state[4*j+2]] ^ USi3[state[4*j+3]];
-        new_state[4*j] = (temp >> 24) & 0xFF;
-        new_state[4*j+1] = (temp >> 16) & 0xFF;
-        new_state[4*j+2] = (temp >> 8) & 0xFF;
-        new_state[4*j+3] = temp & 0xFF;
-    }
-    memcpy(state, new_state, 16);
-}
-
-// Add RoundKey
-__device__ void add_round_key(unsigned char* state, const unsigned char* round_key) {
-    for (int i = 0; i < 16; i++) {
-        state[i] ^= round_key[i];
-    }
-};
-
-// Add Shift_rows
 __device__ void shift_rows(unsigned char *state) {
     unsigned char t;
     t = state[1]; state[1] = state[5]; state[5] = state[9]; state[9] = state[13]; state[13] = t;
@@ -1037,7 +190,6 @@ __device__ void shift_rows(unsigned char *state) {
     t = state[3]; state[3] = state[15]; state[15] = state[11]; state[11] = state[7]; state[7] = t;
 }
 
-// Add aes256_key_expansion
 __device__ void aes256_key_expansion(const unsigned char *key, unsigned char *w) {
     unsigned int *ww = (unsigned int *)w;
     for (int i = 0; i < 8; i++) ww[i] = ((unsigned int *)key)[i];
@@ -1054,7 +206,12 @@ __device__ void aes256_key_expansion(const unsigned char *key, unsigned char *w)
     }
 }
 
-// --- AES-256 Encryption Block Function ---
+__device__ void add_round_key(unsigned char* state, const unsigned char* round_key) {
+    for (int i = 0; i < 16; i++) {
+        state[i] ^= round_key[i];
+    }
+}
+
 __device__ void aes_encrypt_block(const unsigned char *in, unsigned char *out, const unsigned char *key) {
     unsigned char state[16];
     memcpy(state, in, 16);
@@ -1077,7 +234,6 @@ __device__ void aes_encrypt_block(const unsigned char *in, unsigned char *out, c
     memcpy(out, state, 16);
 }
 
-// Add SHA256 functions
 __device__ void sha256_init(uint32_t *h) {
     h[0] = 0x6a09e667; h[1] = 0xbb67ae85; h[2] = 0x3c6ef372; h[3] = 0xa54ff53a;
     h[4] = 0x510e527f; h[5] = 0x9b05688c; h[6] = 0x1f83d9ab; h[7] = 0x5be0cd19;
@@ -1134,7 +290,6 @@ __device__ void sha256(const unsigned char *data, size_t len, unsigned char *has
     }
 }
 
-// Add HMAC-SHA256 function
 __device__ void hmac_sha256(const unsigned char *key, size_t keylen, const unsigned char *msg, size_t msglen, unsigned char *out) {
     unsigned char kpad[64];
     memset(kpad, 0, 64);
@@ -1143,7 +298,7 @@ __device__ void hmac_sha256(const unsigned char *key, size_t keylen, const unsig
     } else {
         memcpy(kpad, key, keylen);
     }
-    unsigned char inner[64 + 1024]; // Assume msglen <=1024 for stack
+    unsigned char inner[64 + 1024];
     for (int i = 0; i < 64; i++) inner[i] = kpad[i] ^ 0x36;
     memcpy(inner + 64, msg, msglen);
     unsigned char temp[32];
@@ -1154,10 +309,9 @@ __device__ void hmac_sha256(const unsigned char *key, size_t keylen, const unsig
     sha256(outer, 64 + 32, out);
 }
 
-// Add PDKDF2 function
 __device__ void pbkdf2_hmac_sha256(const unsigned char *pass, size_t passlen, const unsigned char *salt, size_t saltlen, int iterations, unsigned char *dk, size_t dklen) {
     unsigned char tmp[32];
-    unsigned char buf[64 + 4]; // Salt max 64
+    unsigned char buf[64 + 4];
     memcpy(buf, salt, saltlen);
     int block = 1;
     size_t off = 0;
@@ -1178,20 +332,18 @@ __device__ void pbkdf2_hmac_sha256(const unsigned char *pass, size_t passlen, co
     }
 }
 
-// AES Encryption in CCM mode
 __device__ bool aes_ccm_decrypt(const unsigned char *encrypted, int encrypted_len, const unsigned char *key, const unsigned char *nonce, int nonce_len, unsigned char *decrypted) {
     const int TAG_LEN = 12;
     const int AES_BLOCK_SIZE = 16;
     int ciphertext_len = encrypted_len - TAG_LEN;
     if (ciphertext_len <= 0 || nonce_len != 12) return false;
-    int L = 15 - nonce_len; // 3
+    int L = 15 - nonce_len;
     unsigned char ciphertext[48];
     unsigned char tag[12];
     memcpy(ciphertext, encrypted, ciphertext_len);
     memcpy(tag, encrypted + ciphertext_len, TAG_LEN);
-    // CTR decryption
     unsigned char counter[16];
-    counter[0] = L - 1; // 0x02
+    counter[0] = L - 1;
     memcpy(counter + 1, nonce, nonce_len);
     memset(counter + 1 + nonce_len, 0, L);
     unsigned char key_stream_block[16];
@@ -1205,14 +357,13 @@ __device__ bool aes_ccm_decrypt(const unsigned char *encrypted, int encrypted_le
             c_val >>= 8;
         }
         aes_encrypt_block(ctr_counter, key_stream_block, key);
-        int cp = min(AES_BLOCK_SIZE, ciphertext_len - i);
+        int cp = (AES_BLOCK_SIZE < ciphertext_len - i ? AES_BLOCK_SIZE : ciphertext_len - i);
         for (int j = 0; j < cp; j++) {
             decrypted[i + j] = ciphertext[i + j] ^ key_stream_block[j];
         }
         ctr++;
     }
-    // CBC-MAC computation
-    int flags = ((TAG_LEN - 2) / 2 << 3) | (L - 1); // 0x2A
+    int flags = ((TAG_LEN - 2) / 2 << 3) | (L - 1);
     unsigned char B0[16];
     B0[0] = flags;
     memcpy(B0 + 1, nonce, nonce_len);
@@ -1225,14 +376,13 @@ __device__ bool aes_ccm_decrypt(const unsigned char *encrypted, int encrypted_le
     aes_encrypt_block(B0, mac, key);
     for (int i = 0; i < ciphertext_len; i += AES_BLOCK_SIZE) {
         unsigned char block[16] = {0};
-        int cp = min(AES_BLOCK_SIZE, ciphertext_len - i);
+        int cp = (AES_BLOCK_SIZE < ciphertext_len - i ? AES_BLOCK_SIZE : ciphertext_len - i);
         memcpy(block, decrypted + i, cp);
         for (int j = 0; j < AES_BLOCK_SIZE; j++) block[j] ^= mac[j];
         aes_encrypt_block(block, mac, key);
     }
-    // Compute tag
     unsigned char counter0[16];
-    counter0[0] = L - 1; // 0x02
+    counter0[0] = L - 1;
     memcpy(counter0 + 1, nonce, nonce_len);
     memset(counter0 + 1 + nonce_len, 0, L);
     unsigned char S0[16];
@@ -1243,30 +393,27 @@ __device__ bool aes_ccm_decrypt(const unsigned char *encrypted, int encrypted_le
     return true;
 }
 
-// Verify the decrypted data
 __device__ bool verify_decrypted(const unsigned char* decrypted, size_t len) {
     if (len < 4) return false;
     return (decrypted[0] == 'V' && decrypted[1] == 'M' && decrypted[2] == 'K' && decrypted[3] == 0);
 }
 
-// Add recovery_password_to_key function
 __device__ void recovery_password_to_key(const unsigned char *password, const unsigned char *salt, int salt_len, int iterations, unsigned char *key) {
     pbkdf2_hmac_sha256(password, 110, salt, salt_len, iterations, key, 32);
 }
 
-// Generate a BitLocker recovery password based on an index
 __device__ void generate_password(unsigned long long index, unsigned char* password) {
-    const unsigned long long base = 90909ULL; // Number of possible values per block (0 to 999999 / 11)
+    const unsigned long long base = 90909ULL;
     const int pow10[] = {1, 10, 100, 1000, 10000, 100000};
     int pos = 0;
     for (int i = 0; i < 8; i++) {
         unsigned long long k = index % base;
         index /= base;
-        int block_value = 11 * k; // Each block is 11 * k, where k is 0 to 90909
+        int block_value = 11 * k;
         for (int j = 5; j >= 0; j--) {
             int digit = (block_value / pow10[j]) % 10;
             password[pos] = '0' + digit;
-            password[pos + 1] = 0; // UTF-16LE encoding
+            password[pos + 1] = 0;
             pos += 2;
         }
         if (i < 7) {
@@ -1277,9 +424,8 @@ __device__ void generate_password(unsigned long long index, unsigned char* passw
     }
 }
 
-// CUDA kernel to perform the brute-force attack
 __global__ void brute_force_kernel(
-    unsigned char* salt, int salt_len, int iterations, // Unused for recovery
+    unsigned char* salt, int salt_len, int iterations,
     unsigned char* nonce, int nonce_len,
     unsigned char* encrypted_data, int encrypted_len,
     unsigned long long start_index, int* found_flag,
@@ -1292,19 +438,96 @@ __global__ void brute_force_kernel(
     generate_password(index, password);
 
     unsigned char derived_key[32];
-    recovery_password_to_key(password, derived_key);
+    recovery_password_to_key(password, salt, salt_len, iterations, derived_key);
 
-    unsigned char decrypted[48]; // 48 bytes for VMK
+    unsigned char decrypted[48];
     bool success = aes_ccm_decrypt(encrypted_data, encrypted_len, derived_key, nonce, nonce_len, decrypted);
-	if (success && verify_decrypted(decrypted, 48)) {
-    if (success) {
+    if (success && verify_decrypted(decrypted, 48)) {
         if (atomicCAS(found_flag, 0, 1) == 0) {
             memcpy(result_password, password, 110);
         }
     }
 }
 
-// Main function with status updates
+struct HashParams {
+    std::vector<unsigned char> salt;
+    int iterations;
+    std::vector<unsigned char> iv;
+    std::vector<unsigned char> encrypted_data;
+};
+
+std::vector<unsigned char> hex_to_bytes(const std::string& hex) {
+    std::vector<unsigned char> bytes;
+    if (hex.length() % 2 != 0) {
+        throw std::runtime_error("Hex string length must be even");
+    }
+    for (size_t i = 0; i < hex.length(); i += 2) {
+        std::string byte_str = hex.substr(i, 2);
+        unsigned char byte = static_cast<unsigned char>(std::stoi(byte_str, nullptr, 16));
+        bytes.push_back(byte);
+    }
+    return bytes;
+}
+
+HashParams parse_hash(const std::string& hash) {
+    HashParams params;
+    std::vector<std::string> fields;
+    std::stringstream ss(hash);
+    std::string field;
+    while (std::getline(ss, field, '$')) {
+        if (!field.empty()) {
+            fields.push_back(field);
+        }
+    }
+    if (fields.size() < 9 || fields[0] != "bitlocker") {
+        throw std::runtime_error("Invalid BitLocker hash format");
+    }
+    try {
+        size_t idx = 1;
+        idx++;
+        int salt_len = std::stoi(fields[idx++]);
+        std::string salt_hex = fields[idx++];
+        if (salt_hex.length() != static_cast<size_t>(salt_len) * 2) {
+            throw std::runtime_error("Salt length mismatch");
+        }
+        params.salt = hex_to_bytes(salt_hex);
+        params.iterations = std::stoi(fields[idx++]);
+        int iv_len = std::stoi(fields[idx++]);
+        std::string iv_hex = fields[idx++];
+        if (iv_hex.length() != static_cast<size_t>(iv_len) * 2) {
+            throw std::runtime_error("IV length mismatch");
+        }
+        params.iv = hex_to_bytes(iv_hex);
+        int encrypted_len = std::stoi(fields[idx++]);
+        std::string encrypted_hex = fields[idx++];
+        if (encrypted_hex.length() != static_cast<size_t>(encrypted_len) * 2) {
+            throw std::runtime_error("Encrypted data length mismatch");
+        }
+        params.encrypted_data = hex_to_bytes(encrypted_hex);
+    } catch (const std::exception& e) {
+        throw std::runtime_error("Failed to parse hash: " + std::string(e.what()));
+    }
+    return params;
+}
+
+bool running = true;
+unsigned long long total_candidates_tested = 0;
+
+void display_progress() {
+    while (running) {
+        std::cout << "Total candidates tested: " << total_candidates_tested << std::endl;
+        std::this_thread::sleep_for(std::chrono::seconds(10));
+    }
+}
+
+void display_gpu_utilization() {
+    while (running) {
+        std::cout << "GPU Utilization: ";
+        system("nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits");
+        std::this_thread::sleep_for(std::chrono::seconds(10));
+    }
+}
+
 int main(int argc, char* argv[]) {
     if (argc < 2) {
         std::cerr << "Usage: " << argv[0] << " <hash>" << std::endl;
@@ -1313,38 +536,31 @@ int main(int argc, char* argv[]) {
 
     std::string hash = argv[1];
     try {
-        // Parse the hash
         HashParams params = parse_hash(hash);
 
-        // Allocate device memory
-        unsigned char *d_nonce, *d_slat, *d_encrypted, *d_result_password;
+        unsigned char *d_salt, *d_nonce, *d_encrypted, *d_result_password;
         int *d_found_flag;
+        CUDA_CHECK(cudaMalloc(&d_salt, params.salt.size()));
         CUDA_CHECK(cudaMalloc(&d_nonce, params.iv.size()));
-		CUDA_CHECK(cudaMalloc(&d_salt, params.salt.size()));
         CUDA_CHECK(cudaMalloc(&d_encrypted, params.encrypted_data.size()));
         CUDA_CHECK(cudaMalloc(&d_found_flag, sizeof(int)));
         CUDA_CHECK(cudaMalloc(&d_result_password, 110));
 
-        // Copy data to device
+        CUDA_CHECK(cudaMemcpy(d_salt, params.salt.data(), params.salt.size(), cudaMemcpyHostToDevice));
         CUDA_CHECK(cudaMemcpy(d_nonce, params.iv.data(), params.iv.size(), cudaMemcpyHostToDevice));
-		CUDA_CHECK(cudaMemcpy(d_salt, params.salt.data(), params.salt.size(), cudaMemcpyHostToDevice));
         CUDA_CHECK(cudaMemcpy(d_encrypted, params.encrypted_data.data(), params.encrypted_data.size(), cudaMemcpyHostToDevice));
         CUDA_CHECK(cudaMemset(d_found_flag, 0, sizeof(int)));
 
-        // Launch configuration
-        int threads_per_block = 256; // Adjusted for better GPU utilization
+        int threads_per_block = 256;
         int blocks = 256;
         unsigned long long candidates_per_launch = static_cast<unsigned long long>(blocks) * threads_per_block;
 
-        // Start status threads
         std::thread progress_thread(display_progress);
         std::thread gpu_thread(display_gpu_utilization);
 
-        // Define search space limit
         unsigned long long max_index = 1ULL;
-		for (int i = 0; i < 8; i++) max_index *= 90909ULL;
+        for (int i = 0; i < 8; i++) max_index *= 90909ULL;
 
-        // Brute-force loop
         for (unsigned long long start = 0; start < max_index; start += candidates_per_launch) {
             brute_force_kernel<<<blocks, threads_per_block>>>(
                 d_salt, params.salt.size(), params.iterations,
@@ -1354,10 +570,8 @@ int main(int argc, char* argv[]) {
             );
             cudaDeviceSynchronize();
 
-            // Update total candidates tested
             total_candidates_tested += candidates_per_launch;
 
-            // Check if password was found
             int found;
             CUDA_CHECK(cudaMemcpy(&found, d_found_flag, sizeof(int), cudaMemcpyDeviceToHost));
             if (found) {
@@ -1372,14 +586,12 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        // Stop status threads
         running = false;
         progress_thread.join();
         gpu_thread.join();
 
-        // Free device memory
+        cudaFree(d_salt);
         cudaFree(d_nonce);
-		cudaFree(d_salt);
         cudaFree(d_encrypted);
         cudaFree(d_found_flag);
         cudaFree(d_result_password);
