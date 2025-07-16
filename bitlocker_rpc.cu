@@ -353,7 +353,7 @@ __device__ bool aes_ccm_decrypt(const unsigned char *encrypted, int encrypted_le
     for (int i = 0; i < ciphertext_len; i += AES_BLOCK_SIZE) {
         unsigned char ctr_counter[16];
         memcpy(ctr_counter, counter, 16);
-        unsigned char c_val = ctr;
+        uint32_t c_val = ctr;
         for (int j = L - 1; j >= 0; j--) {
             ctr_counter[15 - j] = c_val & 0xFF;
             c_val >>= 8;
@@ -369,7 +369,7 @@ __device__ bool aes_ccm_decrypt(const unsigned char *encrypted, int encrypted_le
     unsigned char B0[16];
     B0[0] = flags;
     memcpy(B0 + 1, nonce, nonce_len);
-    unsigned char m_len = ciphertext_len;
+    uint32_t m_len = ciphertext_len;
     for (int j = L - 1; j >= 0; j--) {
         B0[15 - j] = m_len & 0xFF;
         m_len >>= 8;
@@ -525,7 +525,7 @@ void display_progress() {
 void display_gpu_utilization() {
     while (running) {
         std::cout << "GPU Utilization: ";
-        system("nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits");
+		system("nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits  ");
         std::this_thread::sleep_for(std::chrono::seconds(10));
     }
 }
