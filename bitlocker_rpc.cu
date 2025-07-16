@@ -10,6 +10,8 @@
 #include <thread>
 #include <chrono>
 #include <cstdlib>
+#include <getopt.h>
+#include <fstream>
 
 #define CUDA_CHECK(call) \
     { cudaError_t err = call; if (err != cudaSuccess) { \
@@ -529,14 +531,64 @@ void display_gpu_utilization() {
 }
 
 int main(int argc, char* argv[]) {
-    if (argc < 2) {
-        std::cerr << "Usage: " << argv[0] << " <hash>" << std::endl;
+    std::string hash_str;
+    std::string input_file;
+    std::string output_file = "found.txt";
+    int threads_per_block = 256;
+    int blocks = 256;
+
+    int opt;
+    while ((opt = getopt(argc, argv, "hf:t:b:o:")) != -1) {
+        switch (opt) {
+            case 'h':
+                std::cout << "Usage: " << argv[0] << " [options] [hash]" << std::endl;
+                std::cout << "Options:" << std::endl;
+                std::cout << "  -h        Show this help message and exit." << std::endl;
+                std::cout << "  -f <file> Input file containing the BitLocker hash." << std::endl;
+                std::cout << "  -t <num>  Set the number of threads per block (default: 256)." << std::endl;
+                std::cout << "  -b <num>  Set the number of blocks (default: 256)." << std::endl;
+                std::cout << "  -o <file> Output the found recovery key to the specified file (default: found.txt in current directory)." << std::endl;
+                return 0;
+            case 'f':
+                input_file = optarg;
+                break;
+            case 't':
+                threads_per_block = std::atoi(optarg);
+                break;
+            case 'b':
+                blocks = std::atoi(optarg);
+                break;
+            case 'o':
+                output_file = optarg;
+                break;
+            default:
+                std::cerr << "Unknown option: -" << char(optopt) << std::endl;
+                return 1;
+        }
+    }
+
+    if (!input_file.empty()) {
+        std::ifstream ifs(input_file);
+        if (!ifs) {
+            std::cerr << "Error opening input file: " << input_file << std::endl;
+            return 1;
+        }
+        std::stringstream ss;
+        ss << ifs.rdbuf();
+        hash_str = ss.str();
+        // Trim trailing newline if present
+        if (!hash_str.empty() && hash_str.back() == '\n') {
+            hash_str.pop_back();
+        }
+    } else if (optind < argc) {
+        hash_str = argv[optind];
+    } else {
+        std::cerr << "No hash provided. Use -h for help." << std::endl;
         return 1;
     }
 
-    std::string hash = argv[1];
     try {
-        HashParams params = parse_hash(hash);
+        HashParams params = parse_hash(hash_str);
 
         unsigned char *d_salt, *d_nonce, *d_encrypted, *d_result_password;
         int *d_found_flag;
@@ -551,8 +603,6 @@ int main(int argc, char* argv[]) {
         CUDA_CHECK(cudaMemcpy(d_encrypted, params.encrypted_data.data(), params.encrypted_data.size(), cudaMemcpyHostToDevice));
         CUDA_CHECK(cudaMemset(d_found_flag, 0, sizeof(int)));
 
-        int threads_per_block = 256;
-        int blocks = 256;
         unsigned long long candidates_per_launch = static_cast<unsigned long long>(blocks) * threads_per_block;
 
         std::thread progress_thread(display_progress);
@@ -577,11 +627,17 @@ int main(int argc, char* argv[]) {
             if (found) {
                 unsigned char result[110];
                 CUDA_CHECK(cudaMemcpy(result, d_result_password, 110, cudaMemcpyDeviceToHost));
-                std::cout << "Password found: ";
-                for (int i = 0; i < 110; i += 2) {
-                    std::cout << result[i];
+                std::ofstream ofs(output_file);
+                if (!ofs) {
+                    std::cerr << "Error opening output file: " << output_file << std::endl;
+                    break;
                 }
-                std::cout << std::endl;
+                ofs << "Password found: ";
+                for (int i = 0; i < 110; i += 2) {
+                    ofs << result[i];
+                }
+                ofs << std::endl;
+                std::cout << "Password found and written to " << output_file << std::endl;
                 break;
             }
         }
