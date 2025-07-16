@@ -1,4 +1,4 @@
-This Bitlocker Recovery Password cracker was made intieraly with Grok.
+This Bitlocker Recovery Password cracker was made entirely with Grok.
 
 To build:
 
