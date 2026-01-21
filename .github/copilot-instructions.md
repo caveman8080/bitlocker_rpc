@@ -102,5 +102,5 @@ bitlocker$version$saltLen$saltHex$iterations$ivLen$ivHex$encryptedLen$encryptedH
 - **Silent kernel failures**: CUDA errors may not propagate; always wrap GPU calls with `CUDA_CHECK` macro
 
 ## Key Files
-- [bitlocker_rpc.cu](./bitlocker_rpc.cu): Complete implementation (~661 lines)
-- [README.md](./README.md): Basic build/run instructions
+- [bitlocker_rpc.cu](../bitlocker_rpc.cu): Complete implementation (~661 lines)
+- [README.md](../README.md): Basic build/run instructions
