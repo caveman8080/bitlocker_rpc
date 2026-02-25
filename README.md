@@ -1,4 +1,3 @@
-
 ![GPU Accelerated](https://img.shields.io/badge/GPU-CUDA-green)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
@@ -23,26 +22,26 @@ BitLocker Recovery Password Cracker (bitlocker_rpc) is a GPU-accelerated brute-f
 
 ### Build
 1. Find your GPU compute capability:
-	 - Run `nvidia-smi` and note the compute capability (e.g., 75 for RTX 2080)
+   - Run `nvidia-smi` and note the compute capability (e.g., 75 for RTX 2080)
 2. Build the project:
-	 - `nvcc -gencode arch=compute_##,code=sm_## -v -o bitlocker_rpc bitlocker_rpc.cu`
-	 - Replace `##` with your GPU's compute capability
+   - `nvcc -gencode arch=compute_##,code=sm_## -v -o bitlocker_rpc src/bitlocker_rpc.cu`
+   - Replace `##` with your GPU's compute capability
 
 ## Usage
 ### Basic Usage
 - Run with hash as argument:
-	- `./bitlocker_rpc 'HASH_STRING'`
+   - `./bitlocker_rpc 'HASH_STRING'`
 - Run with hash from file:
-	- `./bitlocker_rpc -f hash.txt`
+   - `./bitlocker_rpc -f hash.txt`
 - Custom thread/block config:
-	- `./bitlocker_rpc -f hash.txt -t 512 -b 512`
+   - `./bitlocker_rpc -f hash.txt -t 512 -b 512`
 - Output result to file:
-	- `./bitlocker_rpc -f hash.txt -o out.txt`
+   - `./bitlocker_rpc -f hash.txt -o out.txt`
 
 ### Hash Format
 - Use bitcracker to extract your BitLocker hash
 - Supported format:
-	- `bitlocker$version$saltLen$saltHex$iterations$ivLen$ivHex$encryptedLen$encryptedHex`
+   - `bitlocker$version$saltLen$saltHex$iterations$ivLen$ivHex$encryptedLen$encryptedHex`
 
 ### Options
 - `-h`        Show help message

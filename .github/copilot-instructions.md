@@ -1,4 +1,3 @@
-
 # BitLocker RPC Copilot Instructions
 
 ## Project Overview
@@ -51,7 +50,7 @@ BitLocker Recovery Password Cracker (bitlocker_rpc) is a GPU-accelerated brute-f
 - Log found candidates: modify verification check before atomic flag
 
 ## Key Files & References
-- [bitlocker_rpc.cu](../bitlocker_rpc.cu): Main implementation
+- [src/bitlocker_rpc.cu](../src/bitlocker_rpc.cu): Main implementation
 - [README.md](../README.md): Build/run instructions
 - [crypto/](../crypto/): Device crypto routines
 
