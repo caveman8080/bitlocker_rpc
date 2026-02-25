@@ -1,5 +1,5 @@
 ![GPU Accelerated](https://img.shields.io/badge/GPU-CUDA-green)
-![License](https://img.shields.io/badge/license-MIT-blue)
+![GitHub License](https://img.shields.io/github/license/caveman8080/bitlocker_rpc)
 
 # BitLocker Recovery Password Cracker (bitlocker_rpc)
 
