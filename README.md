@@ -63,5 +63,4 @@ BitLocker Recovery Password Cracker (bitlocker_rpc) is a GPU-accelerated brute-f
 - For troubleshooting, see error messages and logs
 - For more info, run `./bitlocker_rpc -h`
 
-## License
-MIT License
+
