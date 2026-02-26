@@ -1,0 +1,10 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security contact
+    url: /SECURITY.md
+    about: 'Report security issues using the project's `SECURITY.md` policy.'
+issue_template:
+  - path: .github/ISSUE_TEMPLATE/bug_report.md
+    about: 'Report a reproducible bug (include environment and logs).'
+  - path: .github/ISSUE_TEMPLATE/feature_request.md
+    about: 'Propose a new feature or enhancement.'

@@ -3,64 +3,88 @@
 
 # BitLocker Recovery Password Cracker (bitlocker_rpc)
 
-## Overview
-BitLocker Recovery Password Cracker (bitlocker_rpc) is a GPU-accelerated brute-force tool for recovering BitLocker recovery passwords using NVIDIA CUDA. It leverages OpenSSL's bitcracker hash extraction and tests candidate passwords in parallel on your GPU.
+One-line: GPU-accelerated BitLocker recovery-password tester for lawful, authorized recovery of your own drives.
+
+## Table of Contents
+- Features
+- Legal & Ethical Disclaimer
+- How BitLocker Recovery Passwords Work (brief)
+- Hardware & Software Requirements
+- Build Instructions (repo-native)
+- Usage
+- Performance Notes
+- Roadmap & Limitations
+- Contributing & License
 
 ## Features
-- GPU-accelerated brute-force (CUDA)
-- Supports bitcracker hash format
-- Customizable thread/block configuration for performance tuning
-- Progress and GPU utilization reporting
-- Robust error handling and validation
+- GPU-accelerated candidate testing using CUDA (`nvcc`)
+- Supports the bitcracker-style `bitlocker$...` hash format
+- Configurable threads/blocks for tuning on different GPUs
+- Device-side crypto primitives (AES-CCM, PBKDF2-HMAC-SHA256) implemented for high throughput
+- Unit tests for AES-CCM (RFC vectors + randomized tests)
 
-## Installation
-### Prerequisites
-- NVIDIA GPU with CUDA support
-- CUDA Toolkit installed
-- C++ compiler (for host code)
-- OpenSSL (for hash extraction via bitcracker)
+## Legal & Ethical Disclaimer (READ CAREFULLY)
+- This tool is intended strictly for legitimate, authorized recovery of BitLocker recovery passwords on drives you own or are explicitly authorized to recover. Unauthorized use to access or attempt to access systems or data you do not own or have permission to test is illegal and unethical.
+- By using this project you agree to comply with all applicable laws and institutional policies. The authors and maintainers disclaim liability for any misuse.
+- If you are performing security research or responsible disclosure, follow the `SECURITY.md` policy in this repository and contact maintainers responsibly.
 
-### Build
-1. Find your GPU compute capability:
-   - Run `nvidia-smi` and note the compute capability (e.g., 75 for RTX 2080)
-2. Build the project:
-   - `nvcc -gencode arch=compute_##,code=sm_## -v -o bitlocker_rpc src/bitlocker_rpc.cu`
-   - Replace `##` with your GPU's compute capability
+## How BitLocker Recovery Passwords Work (brief)
+- BitLocker recovery passwords are commonly 48-digit numeric values formatted as 8 groups of 6 digits. Each 6-digit block includes a checksum digit in common implementations. This repository implements mapping from candidate numeric passwords to the derived keys used by BitLocker and tests those candidates on the GPU.
+
+## Hardware & Software Requirements
+- NVIDIA GPU with CUDA support and an appropriate CUDA Toolkit installed.
+- `nvcc` (CUDA compiler) and a C++ compiler supported by CUDA on Windows (MSVC) or Linux (gcc).
+- Build scripts are provided for convenience: `scripts/build.bat` (Windows) and `scripts/build.sh` (Unix-like) if present.
+- Sufficient GPU memory and a compatible driver for running high-throughput brute-force workloads.
+
+## Build Instructions (repo-native)
+This repository provides platform-specific build scripts; it does not include a CMake configuration by default. Use the provided scripts or a manual `nvcc` invocation as shown below.
+
+Windows (recommended):
+```powershell
+cd <repo-root>
+scripts\build.bat
+# Output: build\bitlocker_rpc.exe and test binaries under build\
+```
+
+Manual nvcc example (Linux/macOS or custom invocation):
+```bash
+nvcc -gencode arch=compute_75,code=sm_75 -I src -I src/include -rdc=true -O3 \
+  -o build/bitlocker_rpc \
+  src/bitlocker_rpc.cu src/hash_parser.cpp src/kernel.cu src/password_gen.cu src/utils.cpp \
+  src/crypto/aes_ccm.cu src/crypto/aes128.cu src/crypto/aes256.cu
+```
 
 ## Usage
-### Basic Usage
-- Run with hash as argument:
-   - `./bitlocker_rpc 'HASH_STRING'`
-- Run with hash from file:
-   - `./bitlocker_rpc -f hash.txt`
-- Custom thread/block config:
-   - `./bitlocker_rpc -f hash.txt -t 512 -b 512`
-- Output result to file:
-   - `./bitlocker_rpc -f hash.txt -o out.txt`
+- Show help (smoke test):
+```bash
+build/bitlocker_rpc.exe -h
+```
+- Run with a bitlocker-style hash string (single-argument):
+```bash
+build/bitlocker_rpc.exe "bitlocker$..."
+```
+- Run with a file containing a single `bitlocker$...` line:
+```bash
+build/bitlocker_rpc.exe -f path/to/hash.txt -t 256 -b 256 -o found.txt
+```
 
-### Hash Format
-- Use bitcracker to extract your BitLocker hash
-- Supported format:
-   - `bitlocker$version$saltLen$saltHex$iterations$ivLen$ivHex$encryptedLen$encryptedHex`
+### Hash format
+- Expected format (bitcracker/bitlocker):
+```
+bitlocker$version$saltLen$saltHex$iterations$ivLen$ivHex$encryptedLen$encryptedHex
+```
 
-### Options
-- `-h`        Show help message
-- `-f <file>` Input file containing BitLocker hash
-- `-t <num>`  Threads per block (default: 256)
-- `-b <num>`  Blocks (default: 256)
-- `-o <file>` Output file for found password (default: found.txt)
+## Performance Notes
+- This project implements cryptographic routines on-device and parallelizes candidate testing across GPU threads and blocks. Performance depends on GPU model, chosen thread/block configuration, and memory constraints. Use profiling and the `-t`/`-b` knobs to tune for your device.
 
-## Contribution Guidelines
-- Fork the repository and create a feature branch
-- Submit pull requests with clear descriptions
-- Follow C++ and CUDA best practices
-- Add comments and documentation for new features
-- Report issues via GitHub
+## Roadmap & Limitations
+- Single-GPU only (no multi-GPU orchestration yet).
+- Full BitLocker recovery keyspace is extremely large; use range restrictions to make targeted recovery feasible.
+- Contributions to add multi-GPU scheduling, CMake support, or improved host tooling are welcome.
 
-## Notes
-- Single GPU only; no multi-GPU support
-- Hash files should use Unix-style line endings (LF)
-- For troubleshooting, see error messages and logs
-- For more info, run `./bitlocker_rpc -h`
+## Contributing & License
+- Follow `CONTRIBUTING.md` and `CODE_OF_CONDUCT.md` when contributing.
+- This repository is distributed under GPL-3.0 (see `LICENSE`).
 
-
+If anything in this README appears inconsistent with the code, the repository code and scripts are authoritative. If you want CMake support added, I can propose and add a `CMakeLists.txt` in a follow-up change.

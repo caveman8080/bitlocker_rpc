@@ -1,58 +1,65 @@
-# BitLocker RPC Copilot Instructions
+# BitLocker RPC Copilot Instructions (maintainer-updated)
 
-## Project Overview
-BitLocker Recovery Password Cracker (bitlocker_rpc) is a GPU-accelerated brute-force tool for recovering BitLocker recovery passwords using NVIDIA CUDA. It parses bitcracker hashes, generates candidate passwords, derives keys, decrypts, and verifies results—all on the GPU.
+This document is intended for maintainers and automated assistants (Copilot-style agents) working on `bitlocker_rpc`. It documents the current architecture, recent changes, build/test workflows, and project-specific constraints. Treat this as the authoritative, living summary of the repository structure and traps-to-avoid.
 
-## Architecture & Key Components
-- **Main Pipeline:**
-  - Hash parsing (`parse_hash`): Extracts salt, iterations, IV, encrypted data from bitcracker hash
-  - Password generation (`generate_password`): Maps index to BitLocker recovery password (8 blocks, 6 digits each, separated by dashes)
-  - Key derivation (`recovery_password_to_key`): PBKDF2-HMAC-SHA256
-  - Decryption (`aes_ccm_decrypt`): AES-256-CCM
-  - Verification (`verify_decrypted`): Checks for 'VMK' magic bytes
-- **GPU Kernel:**
-  - `brute_force_kernel`: Tests candidates in parallel, signals found password via `atomicCAS`
-  - All cryptographic routines (SHA-256, HMAC, PBKDF2, AES, CCM) are implemented as device code
-- **Password Space:**
-  - 8 blocks, each block: 6 digits, generated as `11 * k` (k ∈ [0, 90908])
-  - Total candidates: $90909^8$
+## Important security & ethical notice
+- This project is a security-sensitive tool. It is intended only for lawful, authorized recovery of BitLocker recovery passwords on drives you own or are explicitly authorized to recover. Do not assist in or automate any steps that facilitate unauthorized access. Always follow `SECURITY.md`, `CONTRIBUTING.md`, and `CODE_OF_CONDUCT.md` when contributing or responding to security reports.
 
-## Build & Run Workflow
-- **Build:**
-  - Find GPU compute capability: `nvidia-smi`
-  - Compile: `nvcc -gencode arch=compute_XX,code=sm_XX -v -o bitlocker_rpc bitlocker_rpc.cu`
-- **Run:**
-  - `./bitlocker_rpc 'HASH_STRING'` (hash as argument)
-  - `./bitlocker_rpc -f hash.txt` (hash from file)
-  - `./bitlocker_rpc -f hash.txt -t 512 -b 512` (custom thread/block config)
-  - `./bitlocker_rpc -f hash.txt -o out.txt` (output to file)
+## Project Overview (what the repo does)
+- GPU-accelerated BitLocker recovery-password tester and candidate tester implemented in CUDA C++.
+- Host responsibilities: parse hash, stage GPU work, monitor progress, write found password to `found.txt` or `-o` output.
+- Device responsibilities: PBKDF2-HMAC-SHA256 (warp-optimized), AES block encrypt (AES-128/AES-256 device implementations), AES-CCM (generalized to accept key length and tag length), CTR decryption and CBC-MAC verification on-device.
 
-## Project-Specific Patterns & Constraints
-- **CUDA_CHECK macro:** All CUDA API calls are wrapped for error handling
-- **Fixed buffer sizes:** Password (110 bytes), ciphertext (48 bytes), no dynamic allocation in kernels
-- **Hash format:** `bitlocker$version$saltLen$saltHex$iterations$ivLen$ivHex$encryptedLen$encryptedHex`
-- **Data validation:** Salt/IV/encrypted lengths must match hex string byte count; IV must be 12 bytes; decrypted VMK: 'V', 'M', 'K', 0x00
-- **Progress reporting:** Separate threads for candidate count and GPU utilization (calls `nvidia-smi`)
-- **Single GPU only:** No multi-GPU support; would require new CUDA stream management
+## Architecture & Key Components (current)
+- Main pipeline (host): `src/bitlocker_rpc.cu`
+  - `parse_hash()` in `src/hash_parser.cpp` — parses `bitlocker$...` hashes (now accepts leading `$` variants).
+  - Host memory allocation, kernel launches, profiling counters, and progress threads (`display_progress`, `display_gpu_utilization`).
+- Password generation: `src/password_gen.cu` (maps index → recovery password format)
+- GPU kernel: `src/kernel.cu` — `brute_force_kernel` launches device work, signals found password via `atomicCAS` into `d_found_flag` and writes `d_result_password`.
+- Device crypto (src/crypto/):
+  - `aes256.cu`, `aes128.cu` (AES-128 device encrypt added)
+  - `aes_ccm.cu` generalized: accepts `key_len` (16/32) and `tag_len`, dispatches to AES-128 or AES-256 encryptors
+  - `pbkdf2.cu`, `hmac_sha256.cu`, `sha256.cu` (warp-cooperative PBKDF2/HMAC)
 
-## Debugging & Testing
-- **Windows notes:** Use `nvidia-smi.exe` or ensure PATH; hash files must use LF line endings
-- **Debug checklist:**
-  - Hash parsing: check `hex_to_bytes` conversion
-  - Candidate count: verify `max_index` and `candidates_per_launch`
-  - Found flag: check `aes_ccm_decrypt` and `TAG_LEN=12`
-  - GPU memory: verify `cudaMalloc` sizes
-  - Kernel failures: always wrap with `CUDA_CHECK`
+## Recent notable changes
+- Added AES-128 device implementation (`src/crypto/aes128.cu` / `aes128.h`) and dispatcher so `aes_ccm` supports both AES-128 and AES-256.
+- Generalized `aes_ccm_decrypt` API to accept `key_len` and `tag_len` and handle S0 XOR per RFC-3610.
+- Added RFC-3610 packet vector tests and a generator:
+  - `scripts/generate_rfc_vectors.py` — fetches/parses RFC3610 and emits `src/tests/rfc_vectors.h` (used during test builds).
+  - `src/tests/aes_ccm_rfc_test.cu`, `src/tests/aes_ccm_rfc_vectors.cu` — tests that validate AES-CCM against RFC vectors.
+  - `src/tests/aes_ccm_test.cu`, `src/tests/aes_ccm_rand_test.cu` — roundtrip and randomized tests (existing, updated to new API).
+- Updated `scripts/build_test.bat` and `scripts/build.bat` to include `aes128.cu` in test and main builds to avoid nvlink undefined symbol issues.
+- Parser acceptance: `src/hash_parser.cpp` now accepts both `bitlocker$...` and `$bitlocker$...` variants (robust to leading `$` tokenization).
 
-## Common Modifications
-- Add new crypto: implement new `__device__` functions, call from kernel
-- Change password space: update `generate_password` and `max_index`
-- Log found candidates: modify verification check before atomic flag
+## Build & Run (maintainer notes)
+- Primary build scripts:
+  - Windows: `scripts/build.bat` — builds `build\bitlocker_rpc.exe` and test binaries.
+  - Tests: `scripts/build_test.bat` — builds AES-CCM tests including RFC vectors generator output.
+- NVCC flags used: `-rdc=true` is required for device-link across TUs; include `aes128.cu` explicitly in link objects when AES-128 symbols are referenced.
 
-## Key Files & References
-- [src/bitlocker_rpc.cu](../src/bitlocker_rpc.cu): Main implementation
-- [README.md](../README.md): Build/run instructions
-- [crypto/](../crypto/): Device crypto routines
+## Testing guidance
+- Run unit tests locally before merging PRs:
+  - `scripts\\build_test.bat` then run `build\\aes_ccm_test.exe`, `build\\aes_ccm_rand_test.exe`, `build\\aes_ccm_rfc_vectors.exe`.
+- RFC vector generation:
+  - `scripts/generate_rfc_vectors.py` downloads RFC3610 and writes `src/tests/rfc_vectors.h`. Keep network fetch optional in CI — check-in the generated `rfc_vectors.h` if you want fully offline tests.
+- Keep randomized test counts reasonable for CI; heavy brute-force kernel runs should be gated and not run on shared CI.
+
+## Debugging traps and gotchas
+- Watch for nvlink undefined references when adding device symbols across TUs — include the TU explicitly in link or use `-rdc=true`.
+- Do not assume fixed `TAG_LEN` in AES-CCM; use the generalized API's `tag_len` parameter.
+- Avoid large shared-memory allocations per-thread; the AES warp-cooperative routines assume a maximum `threads_per_block` ≤ 256 to remain within shared buffer limits.
+
+## Security & ethical reminders for automated agents
+- Never attempt to brute-force real targets or automate actions that would access systems you do not own. For automated test runs, use synthetic or public test vectors under `src/tests/`.
+- For any bug or vulnerability that could lead to unauthorized decryption or disclosure, create a private report following `SECURITY.md` and notify maintainers — do not open a public issue.
+
+## Key files & quick references
+- Host entry: `src/bitlocker_rpc.cu`
+- Kernel: `src/kernel.cu`
+- Hash parser: `src/hash_parser.cpp` and `src/include/hash_parser.h`
+- Device crypto: `src/crypto/aes_ccm.cu`, `src/crypto/aes128.cu`, `src/crypto/aes256.cu`, `src/crypto/pbkdf2.cu`
+- Tests: `src/tests/` (AES-CCM tests and RFC vector runner)
+- Build scripts: `scripts/build.bat`, `scripts/build_test.bat`
 
 ---
-**Feedback needed:** If any section is unclear, incomplete, or missing important project-specific knowledge, please specify so it can be improved for future AI agents.
+**Feedback needed:** If any section is unclear, incomplete, or missing important project-specific knowledge, please specify which area and I will expand the instructions. If you want me to add exact example nvcc invocations for specific GPUs, say which GPU SM you target.
