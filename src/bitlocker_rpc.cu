@@ -248,50 +248,62 @@ int main(int argc, char* argv[]) {
         }
 
         if (benchmark_mode) {
-            // Benchmark path: generate passwords only and count them
-            unsigned long long target = 100000000ULL; // 100M
+            // Benchmark: Password generation throughput only (no crypto/hash).
+            // Tests kernel launch overhead + gen speed. 100M cands or 10s cap.
+            // Precise GPU timing w/ cudaEvent. Reports Mkeys/s.
+            // Single GPU (default device); multi-GPU bench extension future.
+            unsigned long long target = 100000000ULL; // 100M candidates
             unsigned long long candidates_per_launch = static_cast<unsigned long long>(blocks) * threads_per_block;
 
+            // Progress + GPU util threads (live speed via total_candidates_tested)
             std::thread progress_thread(display_progress);
             std::thread gpu_thread(display_gpu_utilization);
 
+            // GPU counter + events for precise elapsed
             unsigned int *d_count;
+            cudaEvent_t start_event, stop_event;
             CUDA_CHECK(cudaMalloc(&d_count, sizeof(unsigned int)));
             CUDA_CHECK(cudaMemset(d_count, 0, sizeof(unsigned int)));
+            CUDA_CHECK(cudaEventCreate(&start_event));
+            CUDA_CHECK(cudaEventCreate(&stop_event));
+            CUDA_CHECK(cudaEventRecord(start_event, 0));  // Default stream
 
-            auto t0 = std::chrono::high_resolution_clock::now();
-
+            auto t0_host = std::chrono::high_resolution_clock::now();  // Host safety cap
             while (running.load() && total_candidates_tested < target) {
                 unsigned long long start_index = total_candidates_tested;
                 password_gen_benchmark_kernel<<<blocks, threads_per_block>>>(start_index, candidates_per_launch, d_count);
-                cudaError_t launchErr = cudaGetLastError();
-                if (launchErr != cudaSuccess) {
-                    std::cerr << "Kernel launch error: " << cudaGetErrorString(launchErr) << std::endl;
-                    break;
-                }
-                CUDA_CHECK(cudaDeviceSynchronize());
+                CUDA_CHECK(cudaDeviceSynchronize());  // Block for count
 
-                unsigned int h_count = 0;
+                unsigned int h_count;
                 CUDA_CHECK(cudaMemcpy(&h_count, d_count, sizeof(unsigned int), cudaMemcpyDeviceToHost));
-                total_candidates_tested = h_count;
+                total_candidates_tested = h_count;  // Atomic accum
 
-                auto now = std::chrono::high_resolution_clock::now();
-                double elapsed = std::chrono::duration_cast<std::chrono::duration<double>>(now - t0).count();
-                if (elapsed >= 10.0) break; // time cap
+                auto now_host = std::chrono::high_resolution_clock::now();
+                double elapsed_host = std::chrono::duration_cast<std::chrono::duration<double>>(now_host - t0_host).count();
+                if (elapsed_host >= 10.0) break;  // 10s host cap
             }
 
-            auto t1 = std::chrono::high_resolution_clock::now();
-            double elapsed = std::chrono::duration_cast<std::chrono::duration<double>>(t1 - t0).count();
-            if (elapsed <= 0.0) elapsed = 1e-6;
-            double keys_per_sec = static_cast<double>(total_candidates_tested) / elapsed;
-            int dev = 0; cudaGetDevice(&dev);
-            std::cout << "Benchmark complete: " << std::fixed << std::setprecision(2)
-                      << (keys_per_sec / 1e6) << " M keys/sec on GPU " << dev << std::endl;
+            CUDA_CHECK(cudaEventRecord(stop_event, 0));
+            CUDA_CHECK(cudaEventSynchronize(stop_event));
+            float gpu_elapsed_ms;
+            CUDA_CHECK(cudaEventElapsedTime(&gpu_elapsed_ms, start_event, stop_event));
+            double gpu_elapsed = gpu_elapsed_ms / 1000.0;
+
+            int dev_id;
+            cudaGetDevice(&dev_id);
+
+            double keys_per_sec = static_cast<double>(total_candidates_tested) / gpu_elapsed;
+            std::cout << "\nBenchmark complete: "
+                      << std::fixed << std::setprecision(2)
+                      << (keys_per_sec / 1e6) << " M keys/sec on GPU " << dev_id
+                      << " (GPU time: " << gpu_elapsed << "s, " << total_candidates_tested << " cands)\n";
 
             running.store(false);
             progress_thread.join();
             gpu_thread.join();
             CUDA_CHECK(cudaFree(d_count));
+            CUDA_CHECK(cudaEventDestroy(start_event));
+            CUDA_CHECK(cudaEventDestroy(stop_event));
             return 0;
         }
 

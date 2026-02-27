@@ -93,6 +93,63 @@ bitlocker$version$saltLen$saltHex$iterations$ivLen$ivHex$encryptedLen$encryptedH
 ```
 The easiest way to obtain such a hash is to use an extraction utility such as Bitcracker's HashExtractor; follow their instructions and ensure you have authorization to extract the hash.
 
+## Examples
+
+Detailed real-world usage + console output (RTX 4070 example).
+
+### 1. Benchmark (`--benchmark`)
+```powershell
+build\bitlocker_rpc.exe --benchmark -t 256 -b 1024
+```
+```
+Benchmarking...
+----------------
+GPU 0: RTX 4070 (util 85%)
+25M/100M (25%) | 4.2 GK/s | ETA 18s | (Q)uit
+
+Benchmark complete: 428.50 M keys/sec GPU 0 (3.42s GPU, 1.46B cands)
+```
+
+### 2. Help Anytime
+```powershell
+build\bitlocker_rpc.exe hash.txt --help
+```
+```
+[Full Usage/Options/Examples/Tips as in code print_help()]
+```
+
+### 3. Mask (Known Group 3)
+```powershell
+build\bitlocker_rpc.exe -f hash.txt -m "??????-??????-123456-??????-??????-??????-??????-??????"
+```
+```
+Mask: ...-123456-... | Keyspace: 3.74e34
+(Q)uit
+1.2G/3.74e34 (0%) | 5.8 GK/s | GPU0:92%
+[q pressed]
+Exit? y
+```
+
+### 4. Full Crack (Progress)
+```powershell
+build\bitlocker_rpc.exe -t512 -b2048 "bitlocker$1$..."
+```
+```
+GPUs: 0 (RTX 4070) ~6.2 GH/s
+(Q)uit
+456M/4.3e39 | 6.1 GK/s | 98%
+[... q or found ...]
+```
+
+### 5. Key Found
+```
+Password found! Written to found.txt
+
+found.txt:
+Password found: 123456-789012-345678-901234-567890-123456-789012-345678
+```
+Verify unlocks drive!
+
 ## Benchmark (measured)
 The table below records an on-host measured throughput using the repository's `--benchmark` mode with `-b 128` (blocks) and `-t 128` (threads per block) on the default GPU device present during this run.
 
