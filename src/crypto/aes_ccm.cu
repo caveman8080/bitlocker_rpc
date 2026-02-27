@@ -22,7 +22,7 @@ __device__ void aes_block_encrypt_dispatch(const unsigned char *in, unsigned cha
     }
 }
 
-__device__ void aes_ccm_decrypt_core(
+__device__ bool aes_ccm_decrypt_core(
     const unsigned char *key,
     int key_len,
     const unsigned char *nonce,
@@ -42,10 +42,10 @@ __device__ void aes_ccm_decrypt_core(
     // Layout: [flags(1)] || nonce(nonce_len) || counter(L)  where 1 + nonce_len + L == 16
     if (nonce_len <= 0 || nonce_len >= 15) {
         // unsupported nonce length for this simple CCM helper
-        return;
+        return false;
     }
     int L = 16 - 1 - nonce_len; // counter size in bytes (1..4)
-    if (L < 1 || L > 4) return;
+    if (L < 1 || L > 4) return false;
 
     // initialize constant part
     ctr[0] = 0x01; // keep legacy flags value; specific CCM flags are not fully modeled here
@@ -87,6 +87,7 @@ __device__ void aes_ccm_decrypt_core(
     }
     aes_block_encrypt_dispatch(ctr, s0, key, key_len);
     for (int i = 0; i < tag_len; ++i) out_tag[i] = mac[i] ^ s0[i];
+    return true;
 }
 
 // Wrapper: encrypted data layout = ciphertext || tag (last TAG_LEN bytes)
@@ -98,7 +99,8 @@ __device__ bool aes_ccm_decrypt(const unsigned char *encrypted, int encrypted_le
     // compute tag
     unsigned char computed_tag[16];
     // call core with key_len and tag_len
-    aes_ccm_decrypt_core(key, key_len, nonce, nonce_len, encrypted, ciphertext_len, decrypted, computed_tag, tag_len);
+    bool ok = aes_ccm_decrypt_core(key, key_len, nonce, nonce_len, encrypted, ciphertext_len, decrypted, computed_tag, tag_len);
+    if (!ok) return false;
 
     // compare tags
     for (int i = 0; i < tag_len; ++i) {

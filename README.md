@@ -1,67 +1,69 @@
-![GPU Accelerated](https://img.shields.io/badge/GPU-CUDA-green)
-[![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](https://opensource.org/licenses/GPL-3.0)
+---
+![GPU:Cuda](https://img.shields.io/badge/GPU-CUDA-orange) ![Language:C%2B%2B](https://img.shields.io/badge/Language-C%2B%2B-blue) ![License:GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-green)
 
-# BitLocker Recovery Password Cracker (bitlocker_rpc)
+# bitlocker_rpc — GPU-accelerated BitLocker Recovery Password Tester
 
-One-line: GPU-accelerated BitLocker recovery-password tester for lawful, authorized recovery of your own drives.
+One-line: High-throughput CUDA C++ implementation to test BitLocker recovery-password candidates for lawful, authorized recovery of your own drives.
 
-## Table of Contents
-- Features
-Hash Extraction Guidance (Bitcracker)
-Legal & Ethical Disclaimer
-How BitLocker Recovery Passwords Work (brief)
-Hardware & Software Requirements
-Build Instructions (repo-native)
-Usage
-Performance Notes
-Roadmap & Limitations
-Contributing & License
+Contents
+- [Features](#features)
+- [Legal & Ethical Disclaimer](#legal--ethical-disclaimer)
+- [How BitLocker Recovery Passwords Work](#how-bitlocker-recovery-passwords-work)
+- [Hardware & Software Requirements](#hardware--software-requirements)
+- [Build Instructions](#build-instructions)
+- [Usage](#usage)
+- [Benchmark (measured)](#benchmark-measured)
+- [Performance Notes](#performance-notes)
+- [Roadmap & Limitations](#roadmap--limitations)
+- [Contributing & License](#contributing--license)
 
 ## Features
-- GPU-accelerated candidate testing using CUDA (`nvcc`)
-- Supports the bitcracker-style `$bitlocker$...` hash format
-- Configurable threads/blocks for tuning on different GPUs
-- Device-side crypto primitives (AES-CCM, PBKDF2-HMAC-SHA256) implemented for high throughput
-- Unit tests for AES-CCM (RFC vectors + randomized tests)
+- CUDA-accelerated candidate generation and testing for the 48-digit BitLocker recovery password format (8 groups of 6 digits).
+- Device-side implementations of cryptographic primitives used by BitLocker (PBKDF2-HMAC-SHA256, AES-CCM, AES-128/256) for maximum throughput.
+- Command-line tuning: configurable `-t` (threads per block) and `-b` (blocks) for GPU tuning.
+- Optional `--benchmark` mode to exercise password-generation throughput without performing the full crypto verification.
+- Unit tests for AES-CCM (RFC vectors and randomized tests) included under `src/tests/`.
 
-## Legal & Ethical Disclaimer (READ CAREFULLY)
-- This tool is intended strictly for legitimate, authorized recovery of BitLocker recovery passwords on drives you own or are explicitly authorized to recover. Unauthorized use to access or attempt to access systems or data you do not own or have permission to test is illegal and unethical.
-- By using this project you agree to comply with all applicable laws and institutional policies. The authors and maintainers disclaim liability for any misuse.
-- If you are performing security research or responsible disclosure, follow the `SECURITY.md` policy in this repository and contact maintainers responsibly.
+## Legal & Ethical Disclaimer
+THIS PROJECT IS A SECURITY-SENSITIVE TOOL. Use of this software to access or attempt to access data without explicit authorization is illegal and unethical. By using this software you confirm that you are the owner of the target device or otherwise have explicit written authorization to perform recovery operations on it.
 
-## How BitLocker Recovery Passwords Work (brief)
-- BitLocker recovery passwords are commonly 48-digit numeric values formatted as 8 groups of 6 digits. Each 6-digit block includes a checksum digit in common implementations. This repository implements mapping from candidate numeric passwords to the derived keys used by BitLocker and tests those candidates on the GPU.
+- Do not use this software for unauthorized access, penetration testing without permission, or any activity that violates local laws or terms of service.
+- The authors and maintainers accept no liability for misuse. Use at your own risk.
+- For responsible disclosure of vulnerabilities related to this project, see `SECURITY.md`.
+
+If you are not sure whether you are authorized to recover a disk or system, stop and obtain written permission before proceeding.
+
+## How BitLocker Recovery Passwords Work
+BitLocker recovery passwords are typically 48-digit numeric values displayed as 8 groups of 6 decimal digits (e.g. `111111-222222-...`). Each 6-digit block often encodes a checksum; common recovery-password generation schemes require the 6-digit group to be divisible by 11. This tool generates candidate passwords in the canonical 8x6 format, derives the keys used by BitLocker, and tests candidates on the GPU.
 
 ## Hardware & Software Requirements
-- NVIDIA GPU with CUDA support and an appropriate CUDA Toolkit installed.
-- `nvcc` (CUDA compiler) and a C++ compiler supported by CUDA on Windows (MSVC) or Linux (gcc).
-- Build scripts are provided for convenience: `scripts/build.bat` (Windows) and `scripts/build.sh` (Unix-like) if present.
-- Sufficient GPU memory and a compatible driver for running high-throughput brute-force workloads.
+- NVIDIA GPU with CUDA support and an installed CUDA Toolkit (nvcc). Tested with CUDA Toolkit compatible with your GPU driver.
+- Windows (MSVC toolchain) or Linux (gcc) supported via `nvcc`.
+- Sufficient GPU memory for your workload and CUDA-capable drivers.
+- Build tools: Visual Studio Build Tools (Windows) or standard build essentials (Linux) for host compilation.
 
-## Build Instructions (repo-native)
-This repository provides platform-specific build scripts; it does not include a CMake configuration by default. Use the provided scripts or a manual `nvcc` invocation as shown below.
+The repository includes platform-specific scripts in `scripts/` to assist building on Windows and Unix-like systems.
 
-Windows (recommended):
+## Build Instructions
+This project includes convenience build scripts. Two primary approaches are shown below: using the included scripts, or a manual `nvcc` invocation.
+
+1) Recommended: Use the platform script
+
+Windows (PowerShell):
 ```powershell
 cd <repo-root>
 scripts\build.bat
-# Output: build\bitlocker_rpc.exe and test binaries under build\
-# The build script will automatically detect your GPU's compute capability (SM version) using nvidia-smi.
-# If detection fails, it defaults to SM 75. You can override by setting the SM environment variable:
-#   set SM=89
 ```
 
-Linux/Unix (recommended):
+Linux / macOS (bash):
 ```bash
 cd <repo-root>
 scripts/build.sh
-# Output: build/bitlocker_rpc and test binaries under build/
-# The build script will automatically detect your GPU's compute capability (SM version) using nvidia-smi.
-# If detection fails, it defaults to SM 75. You can override by setting the SM environment variable:
-#   export SM=89
 ```
 
-Manual nvcc example (Linux/macOS or custom invocation):
+2) Manual `nvcc` (example)
+
+Adjust `-gencode` / SM flags as appropriate for your GPU (see `nvidia-smi` for compute capability). Example:
 ```bash
 nvcc -gencode arch=compute_75,code=sm_75 -I src -I src/include -rdc=true -O3 \
   -o build/bitlocker_rpc \
@@ -69,43 +71,52 @@ nvcc -gencode arch=compute_75,code=sm_75 -I src -I src/include -rdc=true -O3 \
   src/crypto/aes_ccm.cu src/crypto/aes128.cu src/crypto/aes256.cu
 ```
 
+3) Optional: CMake
+
+This repository does not include an official `CMakeLists.txt` by default. You may create a simple `CMakeLists.txt` to wrap `nvcc` or invoke `nvcc` via a custom target. If you want, open an issue and I can propose a canonical `CMakeLists.txt` that matches the source layout.
+
 ## Usage
-- Show help (smoke test):
-```bash
-build/bitlocker_rpc.exe -h
+Show help:
+```powershell
+build\bitlocker_rpc.exe -h
 ```
-```bash
-build/bitlocker_rpc.exe "bitlocker$..."
+
+Run with a BitLocker-style hash file or inline hash (see `README` hash format below). Example (benchmark-only):
+```powershell
+build\bitlocker_rpc.exe -B -t 128 -b 128
 ```
-build/bitlocker_rpc.exe "bitlocker$..."
-```bash
-```
-## Hash Extraction Guidance (Bitcracker)
 
-To extract a BitLocker hash from a drive for use with this tool, we recommend the Bitcracker HashExtractor utility:
-
-- [Bitcracker HashExtractor on GitHub](https://github.com/e-ago/bitcracker/tree/master/src_HashExtractor)
-
-Bitcracker is an open-source project that provides tools for extracting BitLocker hashes from Windows volumes. Please credit the Bitcracker authors for their work on hash extraction and refer to their documentation for detailed instructions.
-
-This project accepts hashes in the Bitcracker format (starting with `bitlocker$` or `$bitlocker$`).
-
-### Hash format
-- Expected format (bitcracker/bitlocker):
+### Hash format accepted
+The program accepts the Bitcracker/bitlocker format:
 ```
 bitlocker$version$saltLen$saltHex$iterations$ivLen$ivHex$encryptedLen$encryptedHex
 ```
+The easiest way to obtain such a hash is to use an extraction utility such as Bitcracker's HashExtractor; follow their instructions and ensure you have authorization to extract the hash.
+
+## Benchmark (measured)
+The table below records an on-host measured throughput using the repository's `--benchmark` mode with `-b 128` (blocks) and `-t 128` (threads per block) on the default GPU device present during this run.
+
+| Device | Blocks | Threads | Duration cap | Throughput (M keys/sec) |
+|--------|--------:|--------:|:------------:|------------------------:|
+| Default GPU (detected at runtime) | 128 | 128 | 10s cap | 529.66 |
+
+Notes: The above value was measured on the current machine when `scripts/build.bat` produced `build\\bitlocker_rpc.exe` and `--benchmark` was executed as shown in the Usage section.
 
 ## Performance Notes
-- This project implements cryptographic routines on-device and parallelizes candidate testing across GPU threads and blocks. Performance depends on GPU model, chosen thread/block configuration, and memory constraints. Use profiling and the `-t`/`-b` knobs to tune for your device.
+- Throughput depends strongly on GPU architecture, SM count, clock, memory bandwidth, and host-to-device latency.
+- Use the `-t` and `-b` knobs to tune occupancy. Larger blocks/threads increase parallelism but may hit shared-memory or register limitations.
+- `--benchmark` mode exercises password generation only (skips full crypto verify) and is useful for microbenchmarking generator throughput.
 
 ## Roadmap & Limitations
-- Single-GPU only (no multi-GPU orchestration yet).
-- Full BitLocker recovery keyspace is extremely large; use range restrictions to make targeted recovery feasible.
-- Contributions to add multi-GPU scheduling, CMake support, or improved host tooling are welcome.
+- Multi-GPU orchestration: planned to split ranges across multiple CUDA devices efficiently.
+- CMake integration: optional contribution to provide a canonical cross-platform `CMakeLists.txt`.
+- This tool does not perform any automated extraction of protected volumes — use appropriate extraction tools and legal permission.
 
 ## Contributing & License
-- Follow `CONTRIBUTING.md` and `CODE_OF_CONDUCT.md` when contributing.
-- This repository is distributed under GPL-3.0 (see `LICENSE`).
+Contributions are welcome under the following rules:
+- Follow `CONTRIBUTING.md` and the `CODE_OF_CONDUCT.md` included in this repository.
+- For security-related issues, follow `SECURITY.md` and provide responsible disclosure.
 
-If anything in this README appears inconsistent with the code, the repository code and scripts are authoritative. If you want CMake support added, I can propose and add a `CMakeLists.txt` in a follow-up change.
+License: This repository is distributed under GPL-3.0. See `LICENSE` for full terms.
+
+---

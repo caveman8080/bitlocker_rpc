@@ -19,16 +19,27 @@
 #include <sys/select.h>
 #endif
 
-extern bool running;
+extern std::atomic<bool> running;
 extern unsigned long long total_candidates_tested;
+extern bool benchmark_mode;
+extern std::string g_mask_str;
+extern unsigned long long estimated_keyspace;
 
 void display_progress() {
     using namespace std::chrono_literals;
     auto start_time = std::chrono::steady_clock::now();
     unsigned long long last_tested = 0;
     // Use a single-line in-place stats update to avoid multi-line cursor issues
-    std::cout << "\nBitLocker RPC - GPU Brute Force Recovery\n";
-    std::cout << "----------------------------------------\n";
+    if (benchmark_mode) {
+        std::cout << "\nBenchmarking...\n";
+        std::cout << "----------------\n";
+    } else {
+        std::cout << "\nBitLocker RPC - GPU Brute Force Recovery\n";
+        std::cout << "----------------------------------------\n";
+    }
+    if (!g_mask_str.empty()) {
+        std::cout << "Mask: " << g_mask_str << " | Estimated keyspace: " << estimated_keyspace << "\n";
+    }
     std::cout << "(Q)uit\n";
     // reserve one line for in-place stats
     std::cout << "\n";
@@ -70,7 +81,7 @@ void display_progress() {
     // (select declared in sys/select.h but unistd.h is already included)
 #endif
 
-    while (running) {
+    while (running.load()) {
         auto now = std::chrono::steady_clock::now();
         unsigned long long tested = total_candidates_tested;
         double elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - start_time).count();
@@ -127,7 +138,7 @@ void display_progress() {
                 std::cout << confirm << std::endl;  // echo the choice for the user
                 if (confirm == 'y' || confirm == 'Y') {
                     std::cout << "Exiting gracefully...\n" << std::flush;
-                    running = false;  // set global flag to stop threads/loop
+                    running.store(false);  // set global flag to stop threads/loop
                 } else {
                     std::cout << "Continuing...\n" << std::flush;
                 }
@@ -144,7 +155,7 @@ void display_progress() {
                     std::cout << "\nExit program (y/n): " << std::flush;
                     std::this_thread::sleep_for(300ms);
                     char cc = read_single_char();
-                    if (cc == 'y' || cc == 'Y') running = false;
+                    if (cc == 'y' || cc == 'Y') running.store(false);
                     else {
                         std::cout << "\nContinuing...\n";
                         std::this_thread::sleep_for(300ms);
@@ -169,7 +180,7 @@ void display_progress() {
                         std::this_thread::sleep_for(300ms);
                         std::string confirm;
                         if (std::getline(std::cin, confirm)) {
-                            if (!confirm.empty() && (confirm[0] == 'y' || confirm[0] == 'Y')) running = false;
+                            if (!confirm.empty() && (confirm[0] == 'y' || confirm[0] == 'Y')) running.store(false);
                             else {
                                 std::cout << "\nContinuing...\n";
                                 std::this_thread::sleep_for(300ms);
@@ -182,7 +193,7 @@ void display_progress() {
         }
 #endif
         last_tested = tested;
-        std::this_thread::sleep_for(10s);
+        std::this_thread::sleep_for(1s);
     }
     // restore terminal modes
 #ifdef _WIN32
@@ -198,7 +209,7 @@ void display_progress() {
 
 void display_gpu_utilization() {
     using namespace std::chrono_literals;
-    while (running) {
+    while (running.load()) {
         // Minimal placeholder: real implementation could call nvidia-smi or NVML.
         std::this_thread::sleep_for(5s);
     }

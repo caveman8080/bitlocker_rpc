@@ -12,8 +12,15 @@
 // This implementation avoids repeated key-processing inside HMAC by
 // computing the key block (kpad) once per call and reusing inner/outer
 // pads for each HMAC invocation. It follows the PBKDF2 definition.
+// To support reasonable salt sizes on-device, we allow salts up to SALT_MAX bytes.
+#define SALT_MAX 256
 FORCE_INLINE void pbkdf2_hmac_sha256(const unsigned char * __restrict__ pass, size_t passlen, const unsigned char * __restrict__ salt, size_t saltlen, int iterations, unsigned char * __restrict__ dk, size_t dklen) {
-    if (saltlen > 64) return; // unsupported salt length for this simple device impl
+    if (saltlen > SALT_MAX) {
+        // Salt too large for on-device implementation; zero output and return.
+        // Caller should validate salt sizes; returning zeros prevents use of uninitialized key material.
+        for (size_t i = 0; i < dklen; ++i) dk[i] = 0;
+        return;
+    }
 
     unsigned char kpad[64];
     unsigned char keyhash[32];
@@ -35,11 +42,11 @@ FORCE_INLINE void pbkdf2_hmac_sha256(const unsigned char * __restrict__ pass, si
         opad[i] = kpad[i] ^ 0x5c;
     }
 
-    unsigned char buf[64 + 4]; // salt + block counter
+    unsigned char buf[SALT_MAX + 4]; // salt + block counter
     if (saltlen > 0) memcpy(buf, salt, saltlen);
 
     // Reusable buffers to avoid repeated stack alloc/copies
-    unsigned char inner_base[64 + 32]; // ipad || data
+    unsigned char inner_base[64 + SALT_MAX + 4]; // ipad || data
     unsigned char outer_base[64 + 32]; // opad || U
     // copy fixed ipad/opad prefix
     for (int i = 0; i < 64; ++i) inner_base[i] = ipad[i];
@@ -91,7 +98,11 @@ FORCE_INLINE void pbkdf2_hmac_sha256(const unsigned char * __restrict__ pass, si
 // PBKDF2 using precomputed ipad/opad arrays
 __device__ void pbkdf2_hmac_sha256_with_pads(const unsigned char * __restrict__ ipad, const unsigned char * __restrict__ opad, const unsigned char * __restrict__ salt, size_t saltlen, int iterations, unsigned char * __restrict__ dk, size_t dklen) {
     unsigned char buf[64 + 4]; // salt + counter
-    if (saltlen > 64) return;
+    if (saltlen > 64) {
+        // unsupported salt length for this simple device impl: zero output and return
+        for (size_t i = 0; i < dklen; ++i) dk[i] = 0;
+        return;
+    }
     if (saltlen > 0) memcpy(buf, salt, saltlen);
 
     unsigned char inner_base[64 + 64];
@@ -143,7 +154,18 @@ __device__ void pbkdf2_hmac_sha256_warp(const unsigned char * __restrict__ pass,
     // Allocate a per-block shared pool and derive per-warp pointers from it.
     // 8192 bytes total -> 256 bytes per warp for up to 32 warps per block.
     __shared__ unsigned char s_shared_pool[8192];
-    unsigned char *s_ipad = s_shared_pool + (threadIdx.x/32) * 256; // 64 bytes
+    int warpIdInBlock = threadIdx.x / 32;
+    int warpsInBlock = (blockDim.x + 31) / 32;
+    const int MAX_WARPS_SUPPORTED = 32;
+    if (warpsInBlock > MAX_WARPS_SUPPORTED) {
+        // Block has more warps than shared pool supports; fail deterministically by zeroing output.
+        if (lane == 0) {
+            for (size_t i = 0; i < dklen; ++i) dk[i] = 0;
+        }
+        __syncwarp(mask);
+        return;
+    }
+    unsigned char *s_ipad = s_shared_pool + warpIdInBlock * 256; // 64 bytes
     unsigned char *s_opad = s_ipad + 64; // next 64 bytes
     unsigned char *s_inner = s_opad + 64; // remaining for inner buffer
     unsigned char *s_outer = s_inner + 128;

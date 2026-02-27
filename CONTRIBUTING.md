@@ -1,44 +1,42 @@
 # Contributing to bitlocker_rpc
 
-Thank you for your interest in contributing to bitlocker_rpc. This document explains how to contribute code, tests, and documentation, and the project's expectations for quality, security, and legal/ethical compliance.
+Thank you for helping improve `bitlocker_rpc`. This guide explains how to build, test, and contribute code, documentation, and benchmarks while keeping security and quality high.
 
-IMPORTANT: bitlocker_rpc is a security-sensitive tool intended only for lawful, authorized recovery of BitLocker recovery passwords on drives you own or are explicitly authorized to recover. Do not contribute code that makes it easier to misuse the project. All contributors must follow the Code of Conduct in `CODE_OF_CONDUCT.md` and the responsible disclosure guidance in `SECURITY.md`.
+IMPORTANT: `bitlocker_rpc` is a security-sensitive tool. Only work on targets you own or are explicitly authorized to test. Follow `CODE_OF_CONDUCT.md` and `SECURITY.md` for disclosure guidance.
 
 Table of contents
 - Quick start
-- Report issues and feature requests
-- Development workflow and branching
-- Build and test (developer guide)
-- Code style and review checklist
-- Tests and CI guidance
-- Security and cryptography guidelines
-- Licensing and contributor license
+- Build & test
+- Benchmarking and performance runs
+- Development workflow
+- Coding guidelines & PR checklist
+- Tests and CI
+- Security & crypto guidance
+- License and contribution terms
 
 Quick start
-1. Fork the repository and create a topic branch for your change: `git checkout -b feat/your-feature`.
+1. Fork the repository and create a branch: `git checkout -b feat/your-feature`.
 2. Make focused commits with clear messages (one logical change per commit).
-3. Run the project's build and tests locally (see Build and test section).
-4. Open a pull request against `main` with a clear description and required test evidence.
+3. Run the build and tests locally. Run benchmarks if your change impacts performance.
+4. Open a pull request targeting `main` with a description, test results, and any performance numbers.
 
-Report issues and feature requests
-- Use GitHub Issues for bug reports and feature requests. When filing a bug report include: reproduction steps, platform (Windows/Linux), CUDA toolkit and driver versions, `nvcc` output (if relevant), and any logs or test vectors.
-- For potential security issues, follow `SECURITY.md` instead of opening a public issue.
+Build & test
+Prerequisites: NVIDIA GPU, CUDA Toolkit (matching driver), a C++ toolchain (MSVC/clang/gcc), and `nvcc` on PATH for non-Windows builds.
 
-Development workflow and branching
-- Work on a branch named with a prefix (e.g., `fix/`, `feat/`, `chore/`, `doc/`).
-- Keep branches small and focused. Rebase interactively to clean up WIP commits before PRs.
-- Target branch: `main`. Long-lived feature branches should be coordinated with maintainers.
-
-Build and test (developer guide)
-These steps assume a development workstation with an NVIDIA GPU and CUDA Toolkit installed.
-
-- Windows (PowerShell)
+Windows (PowerShell):
 ```powershell
 cd <repo-root>
 scripts\build.bat
-# builds: build\bitlocker_rpc.exe and test binaries under build\
+# produces: build\bitlocker_rpc.exe and test binaries in build\
 ```
-- Linux/macOS (example using nvcc directly)
+
+Build tests (Windows):
+```powershell
+scripts\build_test.bat
+# run test exes under build\
+```
+
+Linux/macOS (example):
 ```bash
 cd <repo-root>
 nvcc -gencode arch=compute_75,code=sm_75 -I src -I src/include -rdc=true -O3 \
@@ -47,51 +45,45 @@ nvcc -gencode arch=compute_75,code=sm_75 -I src -I src/include -rdc=true -O3 \
   src/crypto/aes_ccm.cu src/crypto/aes128.cu src/crypto/aes256.cu
 ```
 
-Run tests
-- Unit tests live under `src/tests/` and are built via `scripts/build_test.bat` on Windows. Example:
-```powershell
-scripts\build_test.bat
-build\aes_ccm_test.exe
-build\aes_ccm_rand_test.exe
-build\aes_ccm_rfc_vectors.exe
-```
-- Run the RFC vectors and randomized tests locally before opening a PR.
+Benchmarking and performance runs
+- Use the program's benchmark mode to measure throughput without full crypto verification: `build\\bitlocker_rpc.exe -B -t <threads> -b <blocks>`.
+- For device-level throughput testing, run one device at a time and report GPU model and CUDA driver/toolkit versions with results.
+- For multi-GPU tests, ensure each GPU is pinned and runs a distinct keyspace slice; document how you split the keyspace in your PR.
 
-Developer notes (common build issues)
-- Ensure `aes128.cu` is linked into builds that reference AES-128 device symbols (some NVCC/NVML configurations require explicit TU inclusion).
-- If you see nvlink undefined references, re-run builds with `-rdc=true` and include all crypto translation units.
-- Suppress or address compiler warnings; do not introduce new ones without justification.
+Development workflow
+- Branch naming: `fix/`, `feat/`, `chore/`, `doc/`.
+- Keep PRs small and focused; prefer multiple small PRs over large monoliths.
+- Rebase/squash WIP commits before merging to keep history clean.
 
-Code style and review checklist
-- C++/CUDA style
-  - Prefer clear, explicit names (no single-letter variable names for public interfaces).
-  - Keep device-host code separation explicit; avoid host calls from device functions.
-  - Follow existing project patterns (e.g., `CUDA_CHECK` macro usage, fixed buffer sizes in kernels).
-- PR checklist (add to PR description)
-  - Summary: one-paragraph description of the change.
-  - Implementation notes: files changed and rationale.
-  - Tests: description of new/updated tests and instructions to run them.
-  - Security: analysis of any security implications (esp. crypto changes), and any mitigation.
-  - Performance: if the change affects perf, include microbenchmark numbers and test harness used.
+Coding guidelines & PR checklist
+- Language: C++17/CUDA where applicable. Follow the existing project style.
+- Avoid single-letter names in public APIs; prefer explicit, self-documenting names.
+- Device vs host: keep separation clear; avoid host-only APIs on device code.
 
-Tests and CI guidance
-- Include unit tests for any crypto changes; verify against known-test vectors (RFC, randomized).
-- Tests should be deterministic where possible; seed randomness explicitly in test harnesses.
-- Keep test execution time reasonable for CI; long-running GPU brute-force tests should be optional or run on specialized CI runners.
+PR description checklist (include in PR body):
+- **Summary:** one-paragraph description.
+- **Files changed & rationale.**
+- **Testing:** how to run tests and sample outputs.
+- **Security:** note any crypto/security impact and mitigations.
+- **Performance:** microbenchmark numbers and test harness used (if applicable).
 
-Security and cryptography guidelines
-- Changes to cryptographic code must be reviewed thoroughly: ensure constant-time where required, verify buffer sizes, and do not alter crypto primitives without explicit, documented justification.
-- Avoid copying unvetted crypto implementations from the internet; prefer existing project device implementations and tests.
-- Add RFC test vectors when implementing or changing authenticated encryption modes (AES-CCM); store vectors under `src/tests/` and ensure tests validate them.
-- Do not include secret keys, private data, or private test vectors in commits. Use test vectors that are public or generated at test time.
+Pre-commit / hooks (recommended)
+- Use `clang-format` if available for C++ formatting; keep diffs minimal.
+- Optionally add a git hook to run unit tests or linters before pushing.
 
-Responsible disclosure
-- If you find a vulnerability, DO NOT publicly disclose it. Follow `SECURITY.md` to report privately to maintainers.
+Tests and CI
+- Unit tests live in `src/tests/`. Add deterministic tests for crypto primitives and RFC vectors when relevant.
+- Keep CI-friendly tests fast. Long GPU brute-force runs should be optional and gated behind explicit flags or special runners.
 
-Licensing and contributions
-- This repository is licensed under GPL-3.0. By contributing, you agree that your contributions will be licensed under the project license.
+Security & cryptography guidance
+- Crypto changes require careful review. Preserve constant-time properties where required and validate against RFC test vectors.
+- Do not commit secret keys, private test vectors, or production private data. Use public test vectors or generate at test time.
+- Report vulnerabilities privately following `SECURITY.md`.
+
+License and contribution terms
+- The project is licensed under GPL-3.0. By contributing you agree to license your contributions under the same terms.
 
 Contact and governance
-- For contribution questions, open an issue or contact the maintainers (see `CODE_OF_CONDUCT.md` for reporting contact).
+- For questions, open an issue. For potential security issues, follow `SECURITY.md` and include encrypted details if needed.
 
-Thank you for helping improve bitlocker_rpc.
+Thank you for contributing to `bitlocker_rpc`.

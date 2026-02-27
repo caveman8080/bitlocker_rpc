@@ -130,12 +130,11 @@ __device__ void sha256_warp(const unsigned char *data, size_t len, unsigned char
             }
         } else {
             // non-lane0 lanes still need to receive broadcasted hash
-            unsigned int tmp[8];
-            for (int i = 0; i < 8; ++i) {
-                unsigned int v = 0;
-                v = __shfl_sync(fullMask, v, 0);
-                reinterpret_cast<unsigned int*>(hash)[i] = v;
-            }
+                for (int i = 0; i < 8; ++i) {
+                    unsigned int v = 0;
+                    v = __shfl_sync(fullMask, v, 0);
+                    reinterpret_cast<unsigned int*>(hash)[i] = v;
+                }
         }
         return;
     }

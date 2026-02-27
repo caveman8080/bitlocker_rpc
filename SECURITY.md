@@ -1,50 +1,53 @@
-# Security and Responsible Disclosure Policy
+# Security Policy
 
-This project contains security-sensitive code (cryptographic routines, password-recovery tooling, and GPU-accelerated key-testing). If you discover a security vulnerability, please follow this responsible disclosure policy so we can address it promptly and safely.
+This repository follows a responsible disclosure policy. If you discover a security vulnerability, please follow the steps below so maintainers can investigate and fix it safely.
 
-Scope
-- Any code paths that can lead to unauthorized access to data, bypass authentication, leak secrets, or allow remote/privileged code execution in the tool or its build/test infrastructure.
-- Vulnerabilities in cryptographic implementations (wrong authentication handling, padding errors, side-channels, etc.).
+## Reporting a Vulnerability
 
-What not to do
-- Do not publish exploit code, private keys, or sensitive customer data publicly.
-- Do not test vulnerabilities against systems you do not own or are not explicitly authorized to test.
+- Email: 36832235+caveman8080@users.noreply.github.com
+-- PGP: Optional — include an encrypted message if you prefer. Public key (ASCII-armored) is provided below.
 
-How to report
-1. Send an encrypted report to the maintainers at: security@example.com (PGP key preferred).
-   - PGP key (fingerprint): 4A3B C1D2 E5F6 7890 DEADBEEFCAFEBABE0123456789ABCDEF
-   - If you cannot use PGP, send a private email and request an encrypted channel.
-2. In your report include:
-   - A clear, concise description of the issue.
-   - Steps to reproduce (minimal reproducer or test vectors). Do not include secrets or private data.
-   - Impact assessment: what can be accessed or modified, and under what conditions.
-   - Environment details: OS, CUDA driver, nvcc version, GPU model.
-   - Suggested mitigation(s), if you have them.
+-----BEGIN PGP PUBLIC KEY BLOCK-----
 
-Response timeline
-- We will acknowledge receipt within 3 business days.
-- We will provide a remediation plan or status update within 14 calendar days for most reports.
-- For serious vulnerabilities requiring coordinated disclosure, we follow a 90-day disclosure timeline from the initial report; this may be extended by mutual agreement.
+xjMEYktY2RYJKwYBBAHaRw8BAQdAWAcpICWpZx8jdGC4YWlCir2VTPf0EZ31
+43f3LaLsbPPNNWpvc2VwaC5jYXZlc2luYUBwcm90b24ubWUgPGpvc2VwaC5j
+YXZlc2luYUBwcm90b24ubWU+wo8EEBYKACAFAmJLWNkGCwkHCAMCBBUICgIE
+FgIBAAIZAQIbAwIeAQAhCRCnTAwqDwE5ohYhBHm7qu2qdl7jdHKL8adMDCoP
+ATmiWsIA/2pzODKu7f/WjtS5KFuQlprkYmPmikCSSub7vax7m3LeAP97XeAN
+dd5YOZFI/Cj0wW8fgks2VB3lWwiwfXZWe6RmBs44BGJLWNkSCisGAQQBl1UB
+BQEBB0CPlXpIRoTD2E3kXk0mIOJHHWEuHK+bDsLqO2MK1gXtAQMBCAfCeAQY
+FggACQUCYktY2QIbDAAhCRCnTAwqDwE5ohYhBHm7qu2qdl7jdHKL8adMDCoP
+ATmiAecBAMOPKxcdIhqDS+CwBtOw2fKFNkSz8vVs1PDXgPA1P6GNAQC1IsPx
+cJhSK8sOfMI3sGzxkDHoYjt0Izup782byIHfAg==
+=+B4r
 
-What we will (and will not) publish
-- We will coordinate with the reporter on an appropriate disclosure plan. Public advisories will include affected versions, a description of the issue, and remediation steps.
-- We will not include private keys, customer data, or proof-of-concept exploit code in public advisories.
+-----END PGP PUBLIC KEY BLOCK-----
 
-Safe harbor
-- If you act in good faith to report a potential security vulnerability following this policy, we will not pursue legal action against you. We expect researchers to follow the law and avoid privacy violations.
+When reporting, please provide:
+- A clear description of the issue and impact
+- Step-by-step reproduction instructions and minimal test case (if possible)
+- Affected versions/commit hashes
+- Any suggested mitigations or fixes
 
-Acknowledgements
-- We may offer public acknowledgement for reports that lead to a confirmed fix (unless you request anonymity).
+Do not include exploit code or data that would enable an attacker to reproduce the vulnerability at scale. If you must provide a proof-of-concept, mark it clearly and send it encrypted.
 
-Emergency contact
-- If you believe the issue is being actively exploited and requires immediate attention, mark the email subject as **[SECURITY][URGENT]** and include all relevant indicators; also try to reach maintainers via any listed emergency contact channels.
+## Response Timeline
 
-Notes for researchers
-- Avoid running large-scale brute-force attacks against production systems, or tests that could degrade service for legitimate users.
-- Prefer small, self-contained reproducer test cases using the public test vectors in `src/tests/`.
+We commit to the following timeline after receiving a valid report:
+- 48 hours: Acknowledge receipt
+- 14 days: Provide an initial triage and plan
+- 90 days: Aim to publish a fix or coordinated disclosure timeline
 
-Legal
-- This policy does not grant you authorization to access any system you do not own. If you are unsure whether a test is authorized, do not perform the test and contact the maintainers first.
+If the vulnerability is actively being exploited or poses immediate risk, indicate that in your report and we will prioritize accordingly.
 
-Contact placeholder
-- Replace `security@example.com` and the PGP fingerprint above with the project's monitored security contact and key.
+## Scope
+
+This policy covers the code in this repository and any artifacts in the `build/` directory. It does not cover third-party dependencies; please report issues to the relevant upstream projects as well.
+
+## Safe Harbor
+
+If you follow this policy and act in good faith to report security issues, we will not take legal action against you for the testing described in your report.
+
+## Credit
+
+We will acknowledge researchers who responsibly disclose issues unless they request anonymity.

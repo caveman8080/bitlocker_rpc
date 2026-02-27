@@ -1,4 +1,9 @@
-# Contributor Covenant Code of Conduct
+```markdown
+# Contributor Covenant Code of Conduct (v2.1)
+
+This Code of Conduct applies to all contributors to the `bitlocker_rpc` project and to all official project spaces (issue trackers, pull requests, mailing lists, discussions, and other community channels).
+
+IMPORTANT: `bitlocker_rpc` is a security-sensitive project that implements GPU-accelerated password recovery primitives. Use of the project and any participation in its community must comply with applicable laws and with the project's `SECURITY.md` policy. Misuse of this software or participation to facilitate unlawful access is prohibited.
 
 ## Our Pledge
 
@@ -8,27 +13,28 @@ We pledge to act and interact in ways that contribute to an open, welcoming, div
 
 ## Our Standards
 
-Examples of behavior that contributes to a positive environment include:
+Examples of behavior that contributes to a positive environment for our project include:
 
 - Using welcoming and inclusive language
 - Being respectful of differing viewpoints and experiences
 - Gracefully accepting constructive criticism
 - Focusing on what is best for the community
-- Showing empathy towards other community members
+- Showing empathy toward other community members
 
 Examples of unacceptable behavior by participants include:
 
 - The use of sexualized language or imagery and unwelcome sexual attention or advances
 - Trolling, insulting/derogatory comments, and personal or political attacks
-- Public or private harassment
-- Publishing others' private information, such as a physical or electronic address, without explicit permission
+- Public or private harassment, intimidation, or threats
+- Publishing others' private information (doxing) without explicit permission
+- Sustained disruption of discussion or activities
 - Other conduct which could reasonably be considered inappropriate in a professional setting
 
 ## Enforcement Responsibilities
 
 Project maintainers are responsible for clarifying and enforcing our standards of acceptable behavior and will take appropriate and fair corrective action in response to any behavior that they deem inappropriate, threatening, offensive, or harmful.
 
-Maintainers have the right and responsibility to remove, edit, or reject comments, commits, code, wiki edits, issues, pull requests, and other contributions that are not aligned with this Code of Conduct, or to ban temporarily or permanently any contributor for other behaviors that they deem inappropriate, threatening, offensive, or harmful.
+Maintainers have the right and responsibility to remove, edit, or reject comments, commits, code, wiki edits, issues, pull requests, and other contributions that are not aligned with this Code of Conduct, or to ban temporarily or permanently any contributor for behavior that they deem inappropriate, threatening, offensive, or harmful.
 
 ## Scope
 
@@ -36,18 +42,20 @@ This Code of Conduct applies both within project spaces and in public spaces whe
 
 ## Reporting Guidelines
 
-If you are subject to or witness unacceptable behavior, please report it as soon as possible by contacting the project maintainers at: maintainers@example.com
+If you are subject to or witness unacceptable behavior, please report it as soon as possible by following the responsible disclosure and reporting instructions in `SECURITY.md`. Include as much information as you can, including links to the occurrence, relevant timestamps, and screenshots or logs where possible.
 
-All reports will be handled with discretion and with respect for the privacy of those involved. Reports should include as much detail as possible (including screenshots, links, and timestamps) to allow for a prompt and thorough investigation.
-
-If maintainers are unavailable or you prefer an independent reporting channel, please contact the repository owner or hosting platform's support channels.
+Do NOT post private reports publicly; use the contact mechanism defined in `SECURITY.md` so that maintainers can handle matters confidentially and promptly.
 
 ## Enforcement Process
 
-1. Submit a report following the guidelines above.
-2. Maintainers will acknowledge receipt within a timely timeframe and may request additional information.
+1. Submit a report following the guidelines in `SECURITY.md`.
+2. Maintainers will acknowledge receipt within a reasonable timeframe and may request additional information.
 3. The report will be investigated and, where appropriate, corrective action will be taken.
-4. Possible consequences include warnings, temporary or permanent bans, and referral to platform administrators or law enforcement if behavior is criminal.
+4. Possible consequences include warnings, temporary or permanent bans from project spaces, removal of offending content, and referral to platform administrators or law enforcement where warranted.
+
+## Additional Notes for Security-Sensitive Projects
+
+Because `bitlocker_rpc` deals with cryptographic routines and password-recovery techniques, maintainers will prioritize confidentiality and appropriate triage of reports that could affect user safety, privacy, or legal exposure. If you report a security-related incident, please follow `SECURITY.md` for secure communication channels and evidence-handling instructions.
 
 ## Attribution
 
@@ -55,4 +63,6 @@ This Code of Conduct is adapted from the Contributor Covenant, version 2.1, avai
 
 ---
 
-_Please replace `maintainers@example.com` with an appropriate, monitored contact address for your project._
+_This document is the authoritative project Code of Conduct for `bitlocker_rpc`. For security reporting and maintainer contact details, see `SECURITY.md`._
+
+```

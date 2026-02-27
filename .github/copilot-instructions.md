@@ -1,65 +1,69 @@
+<!-- Maintainer-updated Copilot instructions for automated assistants -->
+
 # BitLocker RPC Copilot Instructions (maintainer-updated)
 
-This document is intended for maintainers and automated assistants (Copilot-style agents) working on `bitlocker_rpc`. It documents the current architecture, recent changes, build/test workflows, and project-specific constraints. Treat this as the authoritative, living summary of the repository structure and traps-to-avoid.
+This file documents project context and safe assistant behavior for maintainers and automated Copilot-style agents working on `bitlocker_rpc`.
 
-## Important security & ethical notice
-- This project is a security-sensitive tool. It is intended only for lawful, authorized recovery of BitLocker recovery passwords on drives you own or are explicitly authorized to recover. Do not assist in or automate any steps that facilitate unauthorized access. Always follow `SECURITY.md`, `CONTRIBUTING.md`, and `CODE_OF_CONDUCT.md` when contributing or responding to security reports.
+Purpose
+- Provide a short, actionable summary of the repository, build/test commands, recent risky areas, and explicit safety rules for automated agents.
 
-## Project Overview (what the repo does)
-- GPU-accelerated BitLocker recovery-password tester and candidate tester implemented in CUDA C++.
-- Host responsibilities: parse hash, stage GPU work, monitor progress, write found password to `found.txt` or `-o` output.
-- Device responsibilities: PBKDF2-HMAC-SHA256 (warp-optimized), AES block encrypt (AES-128/AES-256 device implementations), AES-CCM (generalized to accept key length and tag length), CTR decryption and CBC-MAC verification on-device.
+High-level rules for automated agents
+- This is a security-sensitive project. Do not assist in unauthorized access, exploitation, or data exfiltration.
+- If a user requests actions that facilitate unauthorized access (brute-forcing a third-party target, automating exploits, etc.), respond only with: "Sorry, I can't assist with that." and provide responsible-disclosure guidance if appropriate.
+- When drafting or editing code that handles cryptographic primitives, add tests using public RFC vectors and flag the change for manual security review in the PR description.
 
-## Architecture & Key Components (current)
-- Main pipeline (host): `src/bitlocker_rpc.cu`
-  - `parse_hash()` in `src/hash_parser.cpp` — parses `bitlocker$...` hashes (now accepts leading `$` variants).
-  - Host memory allocation, kernel launches, profiling counters, and progress threads (`display_progress`, `display_gpu_utilization`).
-- Password generation: `src/password_gen.cu` (maps index → recovery password format)
-- GPU kernel: `src/kernel.cu` — `brute_force_kernel` launches device work, signals found password via `atomicCAS` into `d_found_flag` and writes `d_result_password`.
-- Device crypto (src/crypto/):
-  - `aes256.cu`, `aes128.cu` (AES-128 device encrypt added)
-  - `aes_ccm.cu` generalized: accepts `key_len` (16/32) and `tag_len`, dispatches to AES-128 or AES-256 encryptors
-  - `pbkdf2.cu`, `hmac_sha256.cu`, `sha256.cu` (warp-cooperative PBKDF2/HMAC)
+Project summary
+- Purpose: GPU-accelerated BitLocker recovery-password candidate tester implemented in CUDA C++.
+- Host responsibilities: hash parsing, staging GPU work, progress reporting, writing results to disk.
+- Device responsibilities: PBKDF2-HMAC-SHA256, AES block encrypt (AES-128/256), AES-CCM, CTR decrypt/CBC-MAC verify, and candidate generation kernels.
 
-## Recent notable changes
-- Added AES-128 device implementation (`src/crypto/aes128.cu` / `aes128.h`) and dispatcher so `aes_ccm` supports both AES-128 and AES-256.
-- Generalized `aes_ccm_decrypt` API to accept `key_len` and `tag_len` and handle S0 XOR per RFC-3610.
-- Added RFC-3610 packet vector tests and a generator:
-  - `scripts/generate_rfc_vectors.py` — fetches/parses RFC3610 and emits `src/tests/rfc_vectors.h` (used during test builds).
-  - `src/tests/aes_ccm_rfc_test.cu`, `src/tests/aes_ccm_rfc_vectors.cu` — tests that validate AES-CCM against RFC vectors.
-  - `src/tests/aes_ccm_test.cu`, `src/tests/aes_ccm_rand_test.cu` — roundtrip and randomized tests (existing, updated to new API).
-- Updated `scripts/build_test.bat` and `scripts/build.bat` to include `aes128.cu` in test and main builds to avoid nvlink undefined symbol issues.
-- Parser acceptance: `src/hash_parser.cpp` now accepts both `bitlocker$...` and `$bitlocker$...` variants (robust to leading `$` tokenization).
+Key files and quick pointers
+- `src/bitlocker_rpc.cu`: main host flow, CLI, device launches, and multi-GPU coordination.
+- `src/password_gen.cu`: maps numeric index → recovery-password string and supports mask mode.
+- `src/kernel.cu`: brute-force kernel; look for `brute_force_kernel` and device-found signaling (`d_found_flag`).
+- `src/crypto/`: AES/PBKDF2/HMAC/sha256 device implementations and AES-CCM glue.
+- `scripts/build.bat`, `scripts/build_test.bat`: Windows build/test entrypoints maintained for CI compatibility.
 
-## Build & Run (maintainer notes)
-- Primary build scripts:
-  - Windows: `scripts/build.bat` — builds `build\bitlocker_rpc.exe` and test binaries.
-  - Tests: `scripts/build_test.bat` — builds AES-CCM tests including RFC vectors generator output.
-- NVCC flags used: `-rdc=true` is required for device-link across TUs; include `aes128.cu` explicitly in link objects when AES-128 symbols are referenced.
+Recent risky/interesting areas
+- AES-CCM generalization: `aes_ccm.cu` accepts variable key and tag lengths; keep tag handling correct.
+- Multi-GPU orchestration and keyspace splitting: review off-by-one keyspace boundaries and per-device start/end indices.
+- Device symbol uploads (mask arrays, found flags): ensure `cudaMemcpyToSymbol` and synchronization are correct.
 
-## Testing guidance
-- Run unit tests locally before merging PRs:
-  - `scripts\\build_test.bat` then run `build\\aes_ccm_test.exe`, `build\\aes_ccm_rand_test.exe`, `build\\aes_ccm_rfc_vectors.exe`.
-- RFC vector generation:
-  - `scripts/generate_rfc_vectors.py` downloads RFC3610 and writes `src/tests/rfc_vectors.h`. Keep network fetch optional in CI — check-in the generated `rfc_vectors.h` if you want fully offline tests.
-- Keep randomized test counts reasonable for CI; heavy brute-force kernel runs should be gated and not run on shared CI.
+Build & test (quick commands)
+- Windows (PowerShell):
+```powershell
+cd <repo-root>
+scripts\build.bat
+scripts\build_test.bat
+```
+- Linux/macOS example (nvcc):
+```bash
+nvcc -gencode arch=compute_75,code=sm_75 -I src -I src/include -rdc=true -O3 \
+  -o build/bitlocker_rpc \
+  src/bitlocker_rpc.cu src/hash_parser.cpp src/kernel.cu src/password_gen.cu src/utils.cpp \
+  src/crypto/aes_ccm.cu src/crypto/aes128.cu src/crypto/aes256.cu
+```
 
-## Debugging traps and gotchas
-- Watch for nvlink undefined references when adding device symbols across TUs — include the TU explicitly in link or use `-rdc=true`.
-- Do not assume fixed `TAG_LEN` in AES-CCM; use the generalized API's `tag_len` parameter.
-- Avoid large shared-memory allocations per-thread; the AES warp-cooperative routines assume a maximum `threads_per_block` ≤ 256 to remain within shared buffer limits.
+Testing guidance for crypto changes
+- Add RFC vectors under `src/tests/` and make test harnesses run quickly by default.
+- Keep heavy brute-force tests gated behind `--slow` or CI labels and do not run on shared CI.
 
-## Security & ethical reminders for automated agents
-- Never attempt to brute-force real targets or automate actions that would access systems you do not own. For automated test runs, use synthetic or public test vectors under `src/tests/`.
-- For any bug or vulnerability that could lead to unauthorized decryption or disclosure, create a private report following `SECURITY.md` and notify maintainers — do not open a public issue.
+How to handle security reports
+- Do not post exploit details publicly. Follow `SECURITY.md` for contact and encrypted reporting.
+- If an automated scan or static analysis reveals a potential vulnerability, create a private issue and add the `security` label for maintainers to triage.
 
-## Key files & quick references
-- Host entry: `src/bitlocker_rpc.cu`
-- Kernel: `src/kernel.cu`
-- Hash parser: `src/hash_parser.cpp` and `src/include/hash_parser.h`
-- Device crypto: `src/crypto/aes_ccm.cu`, `src/crypto/aes128.cu`, `src/crypto/aes256.cu`, `src/crypto/pbkdf2.cu`
-- Tests: `src/tests/` (AES-CCM tests and RFC vector runner)
-- Build scripts: `scripts/build.bat`, `scripts/build_test.bat`
+Examples of assistant-safe responses
+- If asked to help run a brute-force attack on a target you don't own: "Sorry, I can't assist with that. If you believe you've found a vulnerability, please report it via SECURITY.md."
+- If asked to add PGP keys or responsible-disclosure contact to `SECURITY.md`: proceed after confirming the user is an authorized maintainer.
+
+When to escalate to a human maintainer
+- Any code change that weakens cryptographic checks, exposes secret material, automates credential collection, or changes the attack surface.
+
+Feedback and maintenance
+- Keep this file short and up-to-date when adding new risky features (multi-GPU, mask-mode, benchmark-only paths). Notify maintainers via PR.
 
 ---
-**Feedback needed:** If any section is unclear, incomplete, or missing important project-specific knowledge, please specify which area and I will expand the instructions. If you want me to add exact example nvcc invocations for specific GPUs, say which GPU SM you target.
+
+If you'd like, I can now:
+- Add maintainer contact details into `SECURITY.md` (PGP key already present).
+- Create a short checklist to include in PR templates for crypto/security review.

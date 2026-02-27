@@ -28,8 +28,8 @@ __global__ void brute_force_kernel(
     for (unsigned long long offset = gid; offset < candidates_per_launch; offset += total_threads) {
         unsigned long long idx = start_index + offset;
 
-        // quick check if another thread found the password
-        if (*found_flag) return;
+        // quick check if another thread found the password (atomic read)
+        if (atomicAdd(found_flag, 0) != 0) return;
 
         // local buffer for ASCII recovery password (55 chars + NUL)
         unsigned char pwd[56];
@@ -47,8 +47,12 @@ __global__ void brute_force_kernel(
         pbkdf2_hmac_sha256_warp(pwd, passlen, salt, salt_len, iterations, key, 32);
         unsigned long long t1 = clock64();
         // accumulate cycles and counts for region 0 (PBKDF2)
+    #if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 600)
         atomicAdd(&region_cycles[0], (unsigned long long)(t1 - t0));
         atomicAdd(&region_counts[0], 1ULL);
+    #else
+        // Device does not guarantee 64-bit atomicAdd; skip profiling on older archs.
+    #endif
     #if defined(NVTX_EXT)
         nvtxRangePop();
     #endif
@@ -61,9 +65,14 @@ __global__ void brute_force_kernel(
         unsigned long long t2 = clock64();
         // key length = 32 (AES-256), tag length default 12
         bool ok = aes_ccm_decrypt(encrypted_data, encrypted_len, key, 32, nonce, nonce_len, 12, plaintext);
+        if (!ok) continue;
         unsigned long long t3 = clock64();
+    #if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 600)
         atomicAdd(&region_cycles[1], (unsigned long long)(t3 - t2));
         atomicAdd(&region_counts[1], 1ULL);
+    #else
+        // Skip 64-bit profiling updates on older architectures.
+    #endif
     #if defined(NVTX_EXT)
         nvtxRangePop();
     #endif
