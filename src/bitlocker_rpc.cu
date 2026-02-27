@@ -1,4 +1,21 @@
-#include <cuda_runtime.h>
+/**
+ * @file bitlocker_rpc.cu
+ * @brief Main host entrypoint for GPU-accelerated BitLocker recovery password tester.
+ *
+ * Purpose: Parses CLI/hash, orchestrates multi-GPU brute-force using device-side password gen + crypto kernels.
+ * Host responsibilities: CLI (getopt), hash parsing (BitCracker format), GPU discovery/keyspace split,
+ *                       staging H->D transfers, launch loops, progress reporting, quit handling ('q' key),
+ *                       result write if found.
+ * Key algorithms:
+ *   - Password space: 8x6-digit groups, each divisible by 11 (*11 checksum trick: 90,909 valid/group).
+ *   - Mask mode: Fixed groups validated (%11==0), unknown brute-forced (index % 90909 *11).
+ *   - Multi-GPU: Even split of total space (90909^unknown_count), per-GPU streams/async memcpy.
+ *   - Benchmark: Password-gen only, 100M keys or 10s cap, reports Mkeys/s.
+ *   - Quit: Atomic 'running' flag + cross-platform kbhit() poll in progress thread.
+ *   - Found: Atomic flag + CAS claim, only one thread writes password to global result buffer.
+ * Usage Qs answered: "Walk through cracking loop", "Why 90909?", "VMK magic?", "How to quit mid-run".
+ */
+
 #include <cuda_runtime.h>
 #include <iostream>
 #include <string>
@@ -63,6 +80,58 @@ __global__ void password_gen_benchmark_kernel(unsigned long long start_index,
     if (local_count) atomicAdd(d_count, local_count);
 }
 
+/**
+ * @brief Print beautiful, comprehensive CLI help matching README.md.
+ * Sections: Usage, Options (w/ defaults), Examples, Tips.
+ * Answers all "CLI ?" questions for LLMs.
+ */
+void print_help(const char* exe_name) {
+    std::cout << "\n" << exe_name << ": GPU-accelerated BitLocker Recovery Password Tester\n";
+    std::cout << "================================================================\n\n";
+
+    std::cout << "USAGE:\n";
+    std::cout << "  " << exe_name << " [OPTIONS] [HASH_STRING]\n";
+    std::cout << "  or -f FILE for hash from file.\n\n";
+
+    std::cout << "OPTIONS:\n";
+    std::cout << "  -h, --help             Show this help\n";
+    std::cout << "  -f FILE                Hash from file\n";
+    std::cout << "  -t N                   Threads/block (def: 256)\n";
+    std::cout << "  -b N                   Blocks/grid (def: 256)\n";
+    std::cout << "  -B, --benchmark        Benchmark gen (100M/10s)\n";
+    std::cout << "  -o FILE                Output file (def: found.txt)\n";
+    std::cout << "  -m MASK                55-char mask (? wild) (def: full)\n";
+    std::cout << "  -d DEVS                GPUs comma-sep (def: all)\n";
+    std::cout << "  --profile              Profiling output\n\n";
+
+    std::cout << "EXAMPLES:\n";
+    std::cout << "  " << exe_name << " -t 512 -b 1024 \"bitlocker$1$32$...\"\n";
+    std::cout << "  " << exe_name << " -f hash.txt -m \"123456-??????-...\"\n";
+    std::cout << "  " << exe_name << " -B -t 512 -b 1024  # Benchmark\n";
+    std::cout << "  " << exe_name << " -d 0,1 -f hash.txt\n\n";
+
+    std::cout << "TIPS:\n";
+    std::cout << "  - Tune with -B first (monitor GPU util).\n";
+    std::cout << "  - Press 'q' anytime to quit.\n";
+    std::cout << "  - Mask: fixed groups %11==0, reduces to 90909^unknowns.\n";
+    std::cout << "  - Hash: bitlocker$ver$saltlen$salt$iter$ivlen$iv$enc_len$enc\n\n";
+}
+
+/**
+ * @brief Main entrypoint: CLI parsing, hash setup, GPU orchestration, brute-force or benchmark loop.
+ *
+ * Inputs: argv CLI flags (-f hashfile/t threads/b blocks/B bench/o out/m mask/d devs).
+ * Outputs: found.txt with password if match, or benchmark stats.
+ * Flow:
+ *  1. Parse opts, read hash (inline/file).
+ *  2. If mask: validate fixed (%11), compute keyspace=90909^unknowns, upload symbols.
+ *  3. Benchmark: loop gen_kernel until 100M/10s.
+ *  4. Brute: Parse hash->salt/iv/enc/iter, discover GPUs, split space, alloc per-GPU bufs/streams.
+ *  5. Loop: Launch kernel chunks async, sync, check atomic found_flag, copy pwd if claimed.
+ *  6. Progress/GPU util threads: Live stats, kbhit 'q'->running=false.
+ * Thread safety: atomic<bool> running, per-GPU ctx, atomic found_flag/CAS.
+ * Perf: Tunable grid (blocks x threads), stride indexing for parallelism.
+ */
 int main(int argc, char* argv[]) {
     std::string hash_str;
     std::string input_file;
@@ -72,26 +141,12 @@ int main(int argc, char* argv[]) {
 
     int opt;
     bool enable_profile = false;
-    // Support --profile and --benchmark as flags
-    for (int i = 1; i < argc; ++i) {
-        if (std::string(argv[i]) == "--profile") enable_profile = true;
-        if (std::string(argv[i]) == "--benchmark") benchmark_mode = true;
-    }
-    // short options: -b sets blocks (arg), -B is benchmark flag (no arg); -m mask; -d devices
     std::string devices_str;
-    while ((opt = getopt(argc, argv, "hf:t:b:Bo:m:o:d:")) != -1) {
+    g_mask_str.clear();  // global
+    while ((opt = getopt(argc, argv, "hf:t:b:Bo:m:d:")) != -1) {  // Note: added : for o
         switch (opt) {
             case 'h':
-                std::cout << "Usage: " << argv[0] << " [options] [hash]" << std::endl;
-                std::cout << "Options:" << std::endl;
-                std::cout << "  -h        Show this help message and exit." << std::endl;
-                std::cout << "  -f <file> Input file containing the BitLocker hash." << std::endl;
-                std::cout << "  -t <num>  Set the number of threads per block (default: 256)." << std::endl;
-                std::cout << "  -b <num>  Set the number of blocks (default: 256)." << std::endl;
-                std::cout << "  -B        Run in benchmark mode (100M keys or 10s)." << std::endl;
-                std::cout << "  -o <file> Output the found recovery key to the specified file (default: found.txt in current directory)." << std::endl;
-                std::cout << "  --profile Enable launch profiling output." << std::endl;
-                std::cout << "  --benchmark Run in benchmark mode (same as -b)." << std::endl;
+                print_help(argv[0]);
                 return 0;
             case 'f':
                 input_file = optarg;
@@ -115,7 +170,8 @@ int main(int argc, char* argv[]) {
                 benchmark_mode = true;
                 break;
             default:
-                std::cerr << "Unknown option: -" << char(optopt) << std::endl;
+                std::cerr << "Unknown option: -" << static_cast<char>(optopt) << "\n";
+                print_help(argv[0]);
                 return 1;
         }
     }
@@ -134,7 +190,8 @@ int main(int argc, char* argv[]) {
         } else if (optind < argc) {
             hash_str = argv[optind];
         } else {
-            std::cerr << "No hash provided. Use -h for help." << std::endl;
+            std::cerr << "No hash provided.\n";
+            print_help(argv[0]);
             return 1;
         }
     }

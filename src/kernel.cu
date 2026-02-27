@@ -1,3 +1,19 @@
+/**
+ * @file kernel.cu
+ * @brief Core brute-force kernel: password gen + PBKDF2 + AES-CCM VMK verify.
+ *
+ * Purpose: Massive parallel test of candidate indices against hash params.
+ * Thread model: grid(blocks) x block(threads), global ID stride over candidates_per_launch.
+ * Early abort: atomic read found_flag before each candidate.
+ * Crypto chain:
+ *   1. gen pwd -> PBKDF2(pass,salt,100k)->VMK_key(32B)
+ *   2. AES-CCM decrypt(enc_data,key=VMK,nonce=IV,tag=12B)->plaintext
+ *   3. Check plaintext starts "VMK\0" (magic for valid VMK protector).
+ * Claim: atomicCAS(found_flag,0,1) -> copy pwd to result.
+ * Profiling: Optional clock64 regions (PBKDF2/AES) for host stats (64b atomic).
+ * Qs: "Why VMK\0?", "Stride indexing?", "Constant-time?" (no, but GPU safe).
+ */
+
 // Brute-force kernel CUDA implementation (minimal, safe, compile-ready)
 #include "include/kernel.h"
 #include "include/password_gen.h"
@@ -14,6 +30,18 @@
 # endif
 #endif
 
+/**
+ * @brief Brute-force kernel: test range of password indices against BitLocker hash.
+ * @param salt/iv/enc_data Host-uploaded hash components (async memcpy).
+ * @param iterations Typically 100,000 for PBKDF2.
+ * @param start_index/candidates_per_launch Per-launch chunk (strided by threads).
+ * @param found_flag [global atomic] 0->busy, set 1 by finder (read before each cand).
+ * @param result_password [global] Winning pwd copied by CAS claimer only.
+ * @param region_* Optional profiling: cycles/counts for PBKDF2(0)/AES(1).
+ * Exits early on found_flag!=0 (cooperative abort).
+ * Memory: Local pwd[56], key[32], pt[64]; no shared (scalable).
+ * Perf: Warp-sync PBKDF2, CCM optimized for small data.
+ */
 __global__ void brute_force_kernel(
     unsigned char* salt, int salt_len, int iterations,
     unsigned char* nonce, int nonce_len,
