@@ -12,6 +12,10 @@
 #include <cstdlib>
 #include <getopt.h>
 #include <fstream>
+#include <cctype>
+#ifdef _WIN32
+#include <conio.h>
+#endif
 
 #include "include/hash_parser.h"
 #include "include/password_gen.h"

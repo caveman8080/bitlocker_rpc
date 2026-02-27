@@ -8,6 +8,7 @@
 #include <string>
 #include <mutex>
 #include <atomic>
+#include <cctype>
 #include <sstream>
 #ifdef _WIN32
 #include <conio.h>
@@ -115,85 +116,20 @@ void display_progress() {
         };
         move_up_and_clear();
         std::cout << s << std::endl << std::flush;
-        // Centralized input polling: handle immediate single-char in native_raw,
-        // otherwise poll for stdin readiness and read a line when available.
+        // Centralized input polling: on Windows use only _kbhit()/_getch() for both
+        // the 'q' detection and the y/n confirmation to avoid std::cin buffering issues.
 #ifdef _WIN32
-        if (native_raw) {
-            if (_kbhit()) {
-                int ch = _getch();
-                if (ch == 'q' || ch == 'Q') {
-                    std::cout << "\nExit program (y/n): " << std::flush;
-                    std::this_thread::sleep_for(300ms);
-                    char c = read_single_char();
-                    if (c == 'y' || c == 'Y') running = false;
-                    else {
-                        std::cout << "\nContinuing...\n";
-                        std::this_thread::sleep_for(300ms);
-                        // clear the current line after continuing message
-                        auto clear_current_line = [&]() {
-#ifdef _WIN32
-                            HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
-                            if (hOut != INVALID_HANDLE_VALUE) {
-                                CONSOLE_SCREEN_BUFFER_INFO csbi;
-                                if (GetConsoleScreenBufferInfo(hOut, &csbi)) {
-                                    COORD pos = csbi.dwCursorPosition;
-                                    pos.X = 0;
-                                    DWORD written = 0;
-                                    DWORD width = csbi.dwSize.X;
-                                    SetConsoleCursorPosition(hOut, pos);
-                                    FillConsoleOutputCharacterA(hOut, ' ', width, pos, &written);
-                                    FillConsoleOutputAttribute(hOut, csbi.wAttributes, width, pos, &written);
-                                    SetConsoleCursorPosition(hOut, pos);
-                                }
-                            }
-#else
-                            std::cout << "\033[2K\r" << std::flush;
-#endif
-                        };
-                        clear_current_line();
-                    }
-                }
-            }
-        } else {
-            // check if any input is available without blocking
-            std::streambuf* buf = std::cin.rdbuf();
-            std::ptrdiff_t avail = buf->in_avail();
-            if (avail > 0) {
-                std::string line;
-                if (std::getline(std::cin, line)) {
-                    if (!line.empty() && (line[0] == 'q' || line[0] == 'Q')) {
-                        std::cout << "\nExit program (y/n): " << std::flush;
-                        std::this_thread::sleep_for(300ms);
-                        std::string confirm;
-                        if (std::getline(std::cin, confirm)) {
-                            if (!confirm.empty() && (confirm[0] == 'y' || confirm[0] == 'Y')) running = false;
-                            else {
-                                std::cout << "\nContinuing...\n";
-                                std::this_thread::sleep_for(300ms);
-                                auto clear_current_line = [&]() {
-#ifdef _WIN32
-                                    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
-                                    if (hOut != INVALID_HANDLE_VALUE) {
-                                        CONSOLE_SCREEN_BUFFER_INFO csbi;
-                                        if (GetConsoleScreenBufferInfo(hOut, &csbi)) {
-                                            COORD pos = csbi.dwCursorPosition;
-                                            pos.X = 0;
-                                            DWORD written = 0;
-                                            DWORD width = csbi.dwSize.X;
-                                            SetConsoleCursorPosition(hOut, pos);
-                                            FillConsoleOutputCharacterA(hOut, ' ', width, pos, &written);
-                                            FillConsoleOutputAttribute(hOut, csbi.wAttributes, width, pos, &written);
-                                            SetConsoleCursorPosition(hOut, pos);
-                                        }
-                                    }
-#else
-                                    std::cout << "\033[2K\r" << std::flush;
-#endif
-                                };
-                                clear_current_line();
-                            }
-                        }
-                    }
+        if (_kbhit()) {
+            char ch = static_cast<char>(_getch());
+            if (ch == 'q' || ch == 'Q') {
+                std::cout << "\nExit the program (y/n)? " << std::flush;
+                char confirm = static_cast<char>(_getch());
+                std::cout << confirm << std::endl;  // echo the choice for the user
+                if (confirm == 'y' || confirm == 'Y') {
+                    std::cout << "Exiting gracefully...\n" << std::flush;
+                    running = false;  // set global flag to stop threads/loop
+                } else {
+                    std::cout << "Continuing...\n" << std::flush;
                 }
             }
         }
