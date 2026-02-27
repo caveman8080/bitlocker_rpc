@@ -7,18 +7,19 @@ One-line: GPU-accelerated BitLocker recovery-password tester for lawful, authori
 
 ## Table of Contents
 - Features
-- Legal & Ethical Disclaimer
-- How BitLocker Recovery Passwords Work (brief)
-- Hardware & Software Requirements
-- Build Instructions (repo-native)
-- Usage
-- Performance Notes
-- Roadmap & Limitations
-- Contributing & License
+Hash Extraction Guidance (Bitcracker)
+Legal & Ethical Disclaimer
+How BitLocker Recovery Passwords Work (brief)
+Hardware & Software Requirements
+Build Instructions (repo-native)
+Usage
+Performance Notes
+Roadmap & Limitations
+Contributing & License
 
 ## Features
 - GPU-accelerated candidate testing using CUDA (`nvcc`)
-- Supports the bitcracker-style `bitlocker$...` hash format
+- Supports the bitcracker-style `$bitlocker$...` hash format
 - Configurable threads/blocks for tuning on different GPUs
 - Device-side crypto primitives (AES-CCM, PBKDF2-HMAC-SHA256) implemented for high throughput
 - Unit tests for AES-CCM (RFC vectors + randomized tests)
@@ -45,6 +46,19 @@ Windows (recommended):
 cd <repo-root>
 scripts\build.bat
 # Output: build\bitlocker_rpc.exe and test binaries under build\
+# The build script will automatically detect your GPU's compute capability (SM version) using nvidia-smi.
+# If detection fails, it defaults to SM 75. You can override by setting the SM environment variable:
+#   set SM=89
+```
+
+Linux/Unix (recommended):
+```bash
+cd <repo-root>
+scripts/build.sh
+# Output: build/bitlocker_rpc and test binaries under build/
+# The build script will automatically detect your GPU's compute capability (SM version) using nvidia-smi.
+# If detection fails, it defaults to SM 75. You can override by setting the SM environment variable:
+#   export SM=89
 ```
 
 Manual nvcc example (Linux/macOS or custom invocation):
@@ -60,14 +74,21 @@ nvcc -gencode arch=compute_75,code=sm_75 -I src -I src/include -rdc=true -O3 \
 ```bash
 build/bitlocker_rpc.exe -h
 ```
-- Run with a bitlocker-style hash string (single-argument):
 ```bash
 build/bitlocker_rpc.exe "bitlocker$..."
 ```
-- Run with a file containing a single `bitlocker$...` line:
+build/bitlocker_rpc.exe "bitlocker$..."
 ```bash
-build/bitlocker_rpc.exe -f path/to/hash.txt -t 256 -b 256 -o found.txt
 ```
+## Hash Extraction Guidance (Bitcracker)
+
+To extract a BitLocker hash from a drive for use with this tool, we recommend the Bitcracker HashExtractor utility:
+
+- [Bitcracker HashExtractor on GitHub](https://github.com/e-ago/bitcracker/tree/master/src_HashExtractor)
+
+Bitcracker is an open-source project that provides tools for extracting BitLocker hashes from Windows volumes. Please credit the Bitcracker authors for their work on hash extraction and refer to their documentation for detailed instructions.
+
+This project accepts hashes in the Bitcracker format (starting with `bitlocker$` or `$bitlocker$`).
 
 ### Hash format
 - Expected format (bitcracker/bitlocker):

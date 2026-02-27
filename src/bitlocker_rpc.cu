@@ -39,6 +39,13 @@ int main(int argc, char* argv[]) {
     int blocks = 256;
 
     int opt;
+    bool enable_profile = false;
+    // Support --profile as a flag
+    for (int i = 1; i < argc; ++i) {
+        if (std::string(argv[i]) == "--profile") {
+            enable_profile = true;
+        }
+    }
     while ((opt = getopt(argc, argv, "hf:t:b:o:")) != -1) {
         switch (opt) {
             case 'h':
@@ -49,6 +56,7 @@ int main(int argc, char* argv[]) {
                 std::cout << "  -t <num>  Set the number of threads per block (default: 256)." << std::endl;
                 std::cout << "  -b <num>  Set the number of blocks (default: 256)." << std::endl;
                 std::cout << "  -o <file> Output the found recovery key to the specified file (default: found.txt in current directory)." << std::endl;
+                std::cout << "  --profile Enable launch profiling output." << std::endl;
                 return 0;
             case 'f':
                 input_file = optarg;
@@ -191,8 +199,8 @@ int main(int argc, char* argv[]) {
             }
 
             // report simple hotspot info for this launch
-            // print host-side counts if available
-            if (h_region_counts[0] || h_region_counts[1]) {
+            // print host-side counts if available, only if profiling flag is set
+            if (enable_profile && (h_region_counts[0] || h_region_counts[1])) {
                 std::cout << "Launch profiling: PBKDF2 count=" << h_region_counts[0]
                           << " cycles=" << h_region_cycles[0]
                           << " | AES-CCM count=" << h_region_counts[1]

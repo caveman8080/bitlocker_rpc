@@ -3,8 +3,14 @@ REM Build script for Windows
 set SRC_DIR=src
 set INCLUDE_DIR=%SRC_DIR%\include
 set OUT=build\bitlocker_rpc.exe
-rem Allow overriding SM (compute capability) via environment variable SM, default to 75
-if "%SM%"=="" set SM=75
+rem Detect GPU compute capability automatically if SM is not set
+if "%SM%"=="" (
+    for /f "tokens=2 delims=: " %%A in ('nvidia-smi --query-gpu=compute_cap --format=csv,noheader') do set SM=%%A
+    rem Remove dot from compute capability (e.g., 7.5 -> 75)
+    set SM=%SM:.=%
+    rem If detection fails, fallback to 75
+    if "%SM%"=="" set SM=75
+)
 
 rem ensure build directory exists
 if not exist build mkdir build
